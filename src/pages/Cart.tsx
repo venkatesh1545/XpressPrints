@@ -11,6 +11,8 @@ import MobileNav from '@/components/layout/MobileNav';
 import { CartItem } from '@/types';
 import { calculateCartTotal, formatPrice } from '@/lib/pricing';
 
+const CONVENIENCE_FEE = 4; // ₹4 convenience fee
+
 export default function Cart() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -25,7 +27,6 @@ export default function Cart() {
     if (savedCart) {
       const items = JSON.parse(savedCart);
       setCartItems(items);
-      // Initially select all items
       setSelectedItems(new Set(items.map((item: CartItem) => item.id)));
     }
   };
@@ -55,7 +56,6 @@ export default function Cart() {
     setCartItems(updatedCart);
     localStorage.setItem('cart', JSON.stringify(updatedCart));
     
-    // Remove from selected items
     setSelectedItems(prev => {
       const newSet = new Set(prev);
       newSet.delete(itemId);
@@ -66,12 +66,11 @@ export default function Cart() {
   };
 
   const handleEditItem = (item: CartItem) => {
-    // Store item details in sessionStorage for editing
     const fileData = {
       id: item.id,
       name: item.document_name,
-      size: 0, // Not available in cart
-      type: 'application/pdf', // Assume PDF
+      size: 0,
+      type: 'application/pdf',
       url: item.document_url,
       pages: item.total_pages,
       status: 'success' as const
@@ -95,7 +94,6 @@ export default function Cart() {
 
     const selectedCartItems = cartItems.filter(item => selectedItems.has(item.id));
     
-    // Store selected items for checkout
     sessionStorage.setItem('checkoutItems', JSON.stringify(selectedCartItems));
     sessionStorage.setItem('paymentMethod', paymentMethod);
     
@@ -116,7 +114,8 @@ export default function Cart() {
   };
 
   const selectedCartItems = cartItems.filter(item => selectedItems.has(item.id));
-  const selectedTotal = calculateCartTotal(selectedCartItems);
+  const subtotal = calculateCartTotal(selectedCartItems);
+  const totalWithFee = subtotal + CONVENIENCE_FEE;
   const allSelected = cartItems.length > 0 && selectedItems.size === cartItems.length;
 
   if (cartItems.length === 0) {
@@ -144,7 +143,6 @@ export default function Cart() {
       
       <main className="container mx-auto px-4 py-8 pb-20 md:pb-8">
         <div className="max-w-6xl mx-auto">
-          {/* Header with Buttons */}
           <div className="flex items-center justify-between mb-6">
             <Button 
               variant="ghost" 
@@ -170,7 +168,6 @@ export default function Cart() {
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Cart Items */}
             <div className="lg:col-span-2 space-y-4">
-              {/* Select All */}
               <Card>
                 <CardContent className="p-4">
                   <div className="flex items-center space-x-2">
@@ -179,22 +176,17 @@ export default function Cart() {
                       checked={allSelected}
                       onCheckedChange={handleSelectAll}
                     />
-                    <label
-                      htmlFor="select-all"
-                      className="text-sm font-medium leading-none cursor-pointer"
-                    >
+                    <label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
                       Select All ({cartItems.length} items)
                     </label>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Cart Items List */}
               {cartItems.map((item) => (
                 <Card key={item.id}>
                   <CardContent className="p-4">
                     <div className="flex items-start space-x-3">
-                      {/* Checkbox */}
                       <Checkbox
                         id={`item-${item.id}`}
                         checked={selectedItems.has(item.id)}
@@ -202,14 +194,12 @@ export default function Cart() {
                         className="mt-1"
                       />
 
-                      {/* File Icon */}
                       <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                         <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
                           <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
                         </svg>
                       </div>
 
-                      {/* Item Details */}
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium text-gray-900 truncate">
                           {item.document_name}
@@ -228,7 +218,6 @@ export default function Cart() {
                           </span>
                         </div>
 
-                        {/* Copies Control */}
                         <div className="flex items-center space-x-3 mt-3">
                           <span className="text-sm text-gray-600">Copies:</span>
                           <div className="flex items-center space-x-2">
@@ -252,7 +241,6 @@ export default function Cart() {
                         </div>
                       </div>
 
-                      {/* Price and Actions */}
                       <div className="flex flex-col items-end space-y-2">
                         <p className="text-lg font-bold text-gray-900">
                           {formatPrice(item.price * item.copies)}
@@ -292,7 +280,7 @@ export default function Cart() {
                 <CardContent className="space-y-4">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Items ({selectedItems.size})</span>
-                    <span className="font-medium">{formatPrice(selectedTotal)}</span>
+                    <span className="font-medium">{formatPrice(subtotal)}</span>
                   </div>
                   
                   <div className="flex justify-between text-sm">
@@ -300,11 +288,16 @@ export default function Cart() {
                     <span className="text-green-600 font-medium">Free</span>
                   </div>
                   
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Convenience Fee</span>
+                    <span className="font-medium">{formatPrice(CONVENIENCE_FEE)}</span>
+                  </div>
+                  
                   <Separator />
                   
                   <div className="flex justify-between">
                     <span className="font-medium">Total</span>
-                    <span className="text-xl font-bold">{formatPrice(selectedTotal)}</span>
+                    <span className="text-xl font-bold">{formatPrice(totalWithFee)}</span>
                   </div>
 
                   <div className="space-y-2 pt-4">
