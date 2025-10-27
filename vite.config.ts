@@ -9,14 +9,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  build: {
-    rollupOptions: {
-      external: [],
-    },
-  },
-  optimizeDeps: {
-    include: ['pdfjs-dist'],
-  },
-  // Copy PDF.js worker after build
-  publicDir: 'public',
 });
