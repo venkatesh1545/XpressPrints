@@ -19,6 +19,7 @@ import MobileNav from '@/components/layout/MobileNav';
 import { Smartphone, Wallet, CheckCircle, Home } from 'lucide-react';
 
 const CONVENIENCE_FEE = 4;
+const CONVENIENCE_FEE_THRESHOLD = 50;
 
 export default function OrderConfirmation() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -47,7 +48,8 @@ export default function OrderConfirmation() {
   }, [navigate]);
 
   const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.copies), 0);
-  const totalAmount = subtotal + CONVENIENCE_FEE;
+  const convenienceFee = subtotal > CONVENIENCE_FEE_THRESHOLD ? CONVENIENCE_FEE : 0;
+  const totalAmount = subtotal + convenienceFee;
 
   // ✅ Send email notifications to admin and customer
   const sendNotifications = async (
@@ -105,6 +107,7 @@ export default function OrderConfirmation() {
         body: {
           amount: totalAmount,
           userId: user.id,
+          userEmail: user.email, // ✅ Add email
           items: cartItems
         }
       });
@@ -158,6 +161,7 @@ export default function OrderConfirmation() {
 
       const orderData = {
         user_id: user.id,
+        user_email: user.email, // ✅ Add this line
         order_number: orderNumber,
         total_amount: totalAmount,
         payment_method: 'cod',
@@ -165,7 +169,19 @@ export default function OrderConfirmation() {
         payment_id: null,
         delivery_otp: deliveryOtp,
         status: 'pending',
-        order_items: cartItems
+        order_items: cartItems.map(item => ({
+          document_name: item.document_name,
+          document_url: item.document_url,
+          total_pages: item.total_pages,
+          copies: item.copies,
+          color_mode: item.color_mode,
+          sides: item.sides,
+          price: item.price,
+          paper_size: item.paper_size,
+          spiral_binding: item.spiral_binding || 0,
+          record_binding: item.record_binding || 0,
+          custom_pages_config: item.custom_pages_config // ✅ Include custom pages
+        }))
       };
 
       console.log('[COD] Order data:', orderData);
@@ -310,10 +326,25 @@ export default function OrderConfirmation() {
                       <span className="text-green-600 font-medium">Free</span>
                     </div>
                     
-                    <div className="flex justify-between text-sm">
+                    {/* <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Convenience Fee</span>
                       <span className="font-medium">{formatPrice(CONVENIENCE_FEE)}</span>
+                    </div> */}
+                    {/* In the Order Summary section, replace convenience fee display with: */}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Convenience Fee</span>
+                      {convenienceFee > 0 ? (
+                        <span className="font-medium">{formatPrice(convenienceFee)}</span>
+                      ) : (
+                        <span className="text-green-600 font-medium">Free</span>
+                      )}
                     </div>
+
+                    {subtotal <= CONVENIENCE_FEE_THRESHOLD && subtotal > 0 && (
+                      <p className="text-xs text-gray-500 italic">
+                        💡 No convenience fee for orders ≤ ₹{CONVENIENCE_FEE_THRESHOLD}
+                      </p>
+                    )}
                     
                     <Separator />
                     
