@@ -39,17 +39,17 @@ export default function Header({ cartItemsCount = 0 }: HeaderProps) {
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center space-x-2">
           <FileText className="h-8 w-8 text-blue-600" />
-          <span className="text-xl font-bold text-gray-900">PrintXpress</span>
+          <span className="text-xl font-bold text-gray-900">XpressPrints</span>
         </Link>
 
-        <nav className="hidden md:flex items-center space-x-6">
+        {/* <nav className="hidden md:flex items-center space-x-6">
           <Link to="/upload" className="text-gray-600 hover:text-gray-900 transition-colors">
             Upload
           </Link>
           <Link to="/orders" className="text-gray-600 hover:text-gray-900 transition-colors">
             Orders
           </Link>
-        </nav>
+        </nav> */}
 
         <div className="flex items-center space-x-4">
           <Link to="/cart" className="relative">

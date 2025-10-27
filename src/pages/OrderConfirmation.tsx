@@ -3,20 +3,32 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { CartItem } from '@/types';
 import { formatPrice } from '@/lib/pricing';
 import Header from '@/components/layout/Header';
 import MobileNav from '@/components/layout/MobileNav';
-import { Smartphone, Wallet } from 'lucide-react';
+import { Smartphone, Wallet, CheckCircle, Home } from 'lucide-react';
 
 const CONVENIENCE_FEE = 4;
 
 export default function OrderConfirmation() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
+  const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('cod');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [orderDetails, setOrderDetails] = useState<{
+    orderNumber: string;
+    deliveryOtp: string;
+  } | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,35 +61,44 @@ export default function OrderConfirmation() {
         return;
       }
 
-      // Call backend to create PhonePe payment
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-phonepe-payment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-        },
-        body: JSON.stringify({
+      console.log('[Payment] Creating order for ₹', totalAmount);
+
+      // Call Supabase Edge Function
+      const { data, error } = await supabase.functions.invoke('create-phonepe-payment', {
+        body: {
           amount: totalAmount,
           userId: user.id,
           items: cartItems
-        })
+        }
       });
 
-      const { paymentUrl, merchantTransactionId } = await response.json();
+      console.log('[Payment] Response:', data);
 
-      if (paymentUrl) {
-        // Store transaction ID for verification
-        sessionStorage.setItem('merchantTransactionId', merchantTransactionId);
+      if (error) {
+        console.error('[Payment] Error:', error);
+        throw new Error(error.message || 'Payment initialization failed');
+      }
+
+      if (data?.success && data?.paymentUrl) {
+        sessionStorage.setItem('merchantTransactionId', data.merchantTransactionId);
+        console.log('[Payment] Redirecting to PhonePe...');
         
-        // Redirect to PhonePe payment page
-        window.location.href = paymentUrl;
+        // Redirect to PhonePe
+        window.location.href = data.paymentUrl;
       } else {
-        throw new Error('Failed to initialize payment');
+        throw new Error(data?.error || 'Payment URL not received');
       }
 
     } catch (error) {
-      console.error('Payment error:', error);
-      toast.error('Payment initialization failed');
+      console.error('[Payment] Failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Payment failed';
+      
+      if (errorMessage.includes('KEY_NOT_CONFIGURED')) {
+        toast.error('Online payment is being set up. Please use Cash on Delivery for now.');
+      } else {
+        toast.error('Payment failed. Please try Cash on Delivery.');
+      }
+      
       setIsProcessing(false);
     }
   };
@@ -86,52 +107,73 @@ export default function OrderConfirmation() {
     setIsProcessing(true);
     
     try {
-      await createOrder('cod', 'pending', null);
-      toast.success('Order placed successfully!');
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        toast.error('Please sign in to continue');
+        navigate('/login');
+        return;
+      }
+
+      console.log('[COD] Creating order...');
+
+      const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      const orderNumber = `ORD-${Date.now()}`;
+
+      const orderData = {
+        user_id: user.id,
+        order_number: orderNumber,
+        total_amount: totalAmount,
+        payment_method: 'cod',
+        payment_status: 'pending',
+        payment_id: null,
+        delivery_otp: deliveryOtp,
+        status: 'pending',
+        order_items: cartItems
+      };
+
+      console.log('[COD] Order data:', orderData);
+
+      // Insert into Supabase
+      const { data: orderResult, error: orderError } = await supabase
+        .from('orders')
+        .insert([orderData])
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('[COD] Order error:', orderError);
+        throw orderError;
+      }
+
+      console.log('[COD] Order created successfully!');
       
-      // Clear cart and session
+      // Store order details for success modal
+      setOrderDetails({
+        orderNumber,
+        deliveryOtp
+      });
+      
+      // Clear cart
       localStorage.removeItem('cart');
       sessionStorage.removeItem('checkoutItems');
+      sessionStorage.removeItem('paymentMethod');
       
-      navigate('/orders');
+      // Show success modal
+      setShowSuccessModal(true);
+      
     } catch (error) {
-      console.error('COD order error:', error);
-      toast.error('Order placement failed');
+      console.error('[COD] Error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Order placement failed: ${errorMessage}`);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const createOrder = async (
-    method: 'online' | 'cod',
-    paymentStatus: string,
-    transactionId: string | null
-  ) => {
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
-
-    const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    const orderData = {
-      user_id: user.id,
-      order_number: `ORD-${Date.now()}`,
-      total_amount: totalAmount,
-      payment_method: method,
-      payment_status: paymentStatus,
-      payment_id: transactionId,
-      delivery_otp: deliveryOtp,
-      status: 'pending',
-      order_items: cartItems
-    };
-
-    const { error } = await supabase
-      .from('orders')
-      .insert([orderData]);
-
-    if (error) throw error;
+  const handleBackToDashboard = () => {
+    setShowSuccessModal(false);
+    navigate('/');
   };
 
   if (cartItems.length === 0) {
@@ -139,118 +181,190 @@ export default function OrderConfirmation() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
-      
-      <main className="container mx-auto px-4 py-8 pb-20 md:pb-8">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-3xl font-bold mb-8">Order Confirmation</h1>
+    <>
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        
+        <main className="container mx-auto px-4 py-8 pb-20 md:pb-8">
+          <div className="max-w-4xl mx-auto">
+            <h1 className="text-3xl font-bold mb-8">Order Confirmation</h1>
 
-          <div className="grid lg:grid-cols-3 gap-6">
-            {/* Order Items */}
-            <div className="lg:col-span-2 space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Order Items ({cartItems.length})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {cartItems.map((item) => (
-                      <div key={item.id} className="flex justify-between text-sm">
-                        <div>
-                          <p className="font-medium">{item.document_name}</p>
-                          <p className="text-gray-600 text-xs">
-                            {item.total_pages} pages • {item.copies} {item.copies === 1 ? 'copy' : 'copies'}
-                          </p>
+            <div className="grid lg:grid-cols-3 gap-6">
+              {/* Order Items */}
+              <div className="lg:col-span-2 space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Order Items ({cartItems.length})</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {cartItems.map((item) => (
+                        <div key={item.id} className="flex justify-between text-sm">
+                          <div>
+                            <p className="font-medium">{item.document_name}</p>
+                            <p className="text-gray-600 text-xs">
+                              {item.total_pages} pages • {item.copies} {item.copies === 1 ? 'copy' : 'copies'}
+                            </p>
+                          </div>
+                          <span className="font-medium">{formatPrice(item.price * item.copies)}</span>
                         </div>
-                        <span className="font-medium">{formatPrice(item.price * item.copies)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Select Payment Method</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Button
-                    variant={paymentMethod === 'online' ? 'default' : 'outline'}
-                    className="w-full justify-start"
-                    size="lg"
-                    onClick={() => setPaymentMethod('online')}
-                  >
-                    <Smartphone className="mr-2 h-5 w-5" />
-                    Pay Online (UPI, Cards, Wallets)
-                  </Button>
-                  
-                  <Button
-                    variant={paymentMethod === 'cod' ? 'default' : 'outline'}
-                    className="w-full justify-start"
-                    size="lg"
-                    onClick={() => setPaymentMethod('cod')}
-                  >
-                    <Wallet className="mr-2 h-5 w-5" />
-                    Cash on Delivery
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Select Payment Method</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                      <p className="text-xs text-blue-800">
+                        💳 Online payments are being configured with PhonePe. 
+                        We recommend Cash on Delivery for now - fast and secure!
+                      </p>
+                    </div>
 
-            {/* Order Summary */}
-            <div>
-              <Card className="sticky top-4">
-                <CardHeader>
-                  <CardTitle>Order Summary</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Subtotal ({cartItems.length} items)</span>
-                    <span className="font-medium">{formatPrice(subtotal)}</span>
-                  </div>
-                  
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Delivery</span>
-                    <span className="text-green-600 font-medium">Free</span>
-                  </div>
-                  
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Convenience Fee</span>
-                    <span className="font-medium">{formatPrice(CONVENIENCE_FEE)}</span>
-                  </div>
-                  
-                  <Separator />
-                  
-                  <div className="flex justify-between">
-                    <span className="font-medium">Total</span>
-                    <span className="text-xl font-bold">{formatPrice(totalAmount)}</span>
-                  </div>
+                    <Button
+                      variant={paymentMethod === 'cod' ? 'default' : 'outline'}
+                      className="w-full justify-start"
+                      size="lg"
+                      onClick={() => setPaymentMethod('cod')}
+                    >
+                      <Wallet className="mr-2 h-5 w-5" />
+                      Cash on Delivery ✅
+                    </Button>
+                    
+                    <Button
+                      variant={paymentMethod === 'online' ? 'default' : 'outline'}
+                      className="w-full justify-start opacity-75"
+                      size="lg"
+                      onClick={() => setPaymentMethod('online')}
+                    >
+                      <Smartphone className="mr-2 h-5 w-5" />
+                      Pay Online (Coming Soon)
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
 
-                  <Button
-                    onClick={paymentMethod === 'online' ? handlePhonePePayment : handleCODOrder}
-                    className="w-full"
-                    size="lg"
-                    disabled={isProcessing}
-                  >
-                    {isProcessing ? 'Processing...' : 
-                     paymentMethod === 'online' ? 'Proceed to Pay' : 'Place Order'}
-                  </Button>
+              {/* Order Summary */}
+              <div>
+                <Card className="sticky top-4">
+                  <CardHeader>
+                    <CardTitle>Order Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Subtotal ({cartItems.length} items)</span>
+                      <span className="font-medium">{formatPrice(subtotal)}</span>
+                    </div>
+                    
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Delivery</span>
+                      <span className="text-green-600 font-medium">Free</span>
+                    </div>
+                    
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Convenience Fee</span>
+                      <span className="font-medium">{formatPrice(CONVENIENCE_FEE)}</span>
+                    </div>
+                    
+                    <Separator />
+                    
+                    <div className="flex justify-between">
+                      <span className="font-medium">Total</span>
+                      <span className="text-xl font-bold">{formatPrice(totalAmount)}</span>
+                    </div>
 
-                  <p className="text-xs text-gray-500 text-center">
-                    {paymentMethod === 'online' 
-                      ? 'You will be redirected to PhonePe for secure payment'
-                      : 'Pay cash when your order is delivered'
-                    }
-                  </p>
-                </CardContent>
-              </Card>
+                    <Button
+                      onClick={paymentMethod === 'online' ? handlePhonePePayment : handleCODOrder}
+                      className="w-full"
+                      size="lg"
+                      disabled={isProcessing}
+                    >
+                      {isProcessing ? (
+                        <span className="flex items-center">
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Processing...
+                        </span>
+                      ) : paymentMethod === 'online' ? 'Proceed to Pay' : 'Place Order'}
+                    </Button>
+
+                    <p className="text-xs text-gray-500 text-center">
+                      {paymentMethod === 'online' 
+                        ? '🔒 You will be redirected to PhonePe for secure payment'
+                        : '✅ Free delivery within 2 hours • Pay when you receive'
+                      }
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
 
-      <MobileNav />
-    </div>
+        <MobileNav />
+      </div>
+
+      {/* Success Modal */}
+      <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex justify-center mb-4">
+              <div className="rounded-full bg-green-100 p-3">
+                <CheckCircle className="h-12 w-12 text-green-600" />
+              </div>
+            </div>
+            <DialogTitle className="text-center text-2xl">Order Placed Successfully!</DialogTitle>
+            <DialogDescription className="text-center space-y-3 pt-4">
+              <p className="text-base">
+                Your order has been confirmed and will be delivered within 2 hours.
+              </p>
+              
+              {orderDetails && (
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div className="text-sm">
+                    <span className="text-gray-600">Order Number: </span>
+                    <span className="font-bold text-gray-900">{orderDetails.orderNumber}</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-600">Delivery OTP: </span>
+                    <span className="font-mono font-bold text-blue-600 text-lg">{orderDetails.deliveryOtp}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    💡 Save this OTP to receive your delivery
+                  </p>
+                </div>
+              )}
+
+              <p className="text-sm text-gray-600">
+                You can track your order status in the <strong>"My Orders"</strong> section.
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex flex-col gap-3 mt-4">
+            <Button
+              onClick={() => navigate('/my-orders')}
+              className="w-full"
+            >
+              View My Orders
+            </Button>
+            <Button
+              onClick={handleBackToDashboard}
+              variant="outline"
+              className="w-full"
+            >
+              <Home className="mr-2 h-4 w-4" />
+              Back to Home
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

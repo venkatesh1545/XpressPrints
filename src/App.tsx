@@ -13,6 +13,9 @@ import Orders from './pages/Orders';
 import OrderConfirmation from './pages/OrderConfirmation';
 import NotFound from './pages/NotFound';
 import PaymentStatus from './pages/PaymentStatus';
+import MyOrders from './pages/MyOrders';
+import AdminLogin from './pages/AdminLogin';
+import AdminOrders from './pages/AdminOrders';
 import Terms from './pages/Terms';
 import RefundPolicy from './pages/RefundPolicy';
 import PrivacyPolicy from './pages/PrivacyPolicy';
@@ -36,7 +39,9 @@ const App = () => (
           <Route path="/order-confirmation" element={<OrderConfirmation />} />
           <Route path="/payment-status" element={<PaymentStatus />} />
           <Route path="*" element={<NotFound />} />
-
+          <Route path="/my-orders" element={<MyOrders />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/orders" element={<AdminOrders />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/refund-policy" element={<RefundPolicy />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
