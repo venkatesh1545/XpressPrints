@@ -20,6 +20,7 @@ import Terms from './pages/Terms';
 import RefundPolicy from './pages/RefundPolicy';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import ShippingPolicy from './pages/ShippingPolicy';
+import ContactUs from './pages/ContactUs';
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -46,6 +47,8 @@ const App = () => (
           <Route path="/refund-policy" element={<RefundPolicy />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/shipping-policy" element={<ShippingPolicy />} />
+          <Route path="/contact-us" element={<ContactUs />} />
+
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
