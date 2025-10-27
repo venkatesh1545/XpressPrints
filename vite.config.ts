@@ -11,14 +11,12 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      output: {
-        manualChunks: {
-          'pdfjs': ['pdfjs-dist'],
-        },
-      },
+      external: [],
     },
   },
   optimizeDeps: {
     include: ['pdfjs-dist'],
   },
+  // Copy PDF.js worker after build
+  publicDir: 'public',
 });
