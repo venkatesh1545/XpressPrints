@@ -197,9 +197,47 @@ export default function AdminOrders() {
 
 
 
-  const handlePreviewFile = (fileUrl: string) => {
-    window.open(fileUrl, '_blank');
-  };
+const handlePreviewFile = async (fileUrl: string) => {
+  try {
+    console.log('[Admin] Original URL:', fileUrl);
+    
+    // Extract the file path from the full URL
+    // URL format: https://xxx.supabase.co/storage/v1/object/public/documents/documents/filename.pdf
+    const pathMatch = fileUrl.match(/\/storage\/v1\/object\/public\/documents\/(.*)/);
+    
+    if (!pathMatch || !pathMatch[1]) {
+      console.error('[Admin] Could not extract file path from URL');
+      toast.error('Invalid file URL');
+      return;
+    }
+
+    const filePath = pathMatch[1]; // This will be "documents/filename.pdf"
+    console.log('[Admin] File path:', filePath);
+
+    // Generate a signed URL that bypasses RLS (valid for 1 hour)
+    const { data, error } = await supabase.storage
+      .from('documents')
+      .createSignedUrl(filePath, 3600);
+
+    if (error) {
+      console.error('[Admin] Signed URL error:', error);
+      // If signed URL fails, the file might not exist
+      toast.error('File not found or has been deleted');
+      return;
+    }
+
+    if (data?.signedUrl) {
+      console.log('[Admin] Opening signed URL');
+      window.open(data.signedUrl, '_blank');
+    }
+  } catch (error) {
+    console.error('[Admin] Error:', error);
+    toast.error('Failed to open file');
+  }
+};
+
+
+
 
   const handleLogout = () => {
     sessionStorage.removeItem('admin_logged_in');
