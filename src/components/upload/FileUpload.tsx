@@ -7,7 +7,8 @@ import { supabase } from '@/lib/supabase';
 import { UploadedFile } from '@/pages/Upload';
 import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
 
 interface FileUploadProps {
   onFilesUploaded: (files: UploadedFile[]) => void;
@@ -266,3 +267,4 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
     </Card>
   );
 }
+
