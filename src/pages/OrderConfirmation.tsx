@@ -18,6 +18,42 @@ import Header from '@/components/layout/Header';
 import MobileNav from '@/components/layout/MobileNav';
 import { Smartphone, Wallet, CheckCircle, Home } from 'lucide-react';
 
+// Add after imports, before component
+interface RazorpayResponse {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  prefill: {
+    email: string;
+    contact: string;
+  };
+  theme: {
+    color: string;
+  };
+  handler: (response: RazorpayResponse) => Promise<void>;
+  modal: {
+    ondismiss: () => void;
+  };
+}
+
+declare global {
+  interface Window {
+    Razorpay: new (options: RazorpayOptions) => {
+      open: () => void;
+    };
+  }
+}
+
+
 const CONVENIENCE_FEE = 4;
 const CONVENIENCE_FEE_THRESHOLD = 50;
 
@@ -89,58 +125,133 @@ export default function OrderConfirmation() {
     }
   };
 
-  const handlePhonePePayment = async () => {
-    setIsProcessing(true);
+  const handleRazorpayPayment = async () => {
+      setIsProcessing(true);
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        toast.error('Please sign in to continue');
-        navigate('/login');
-        return;
-      }
-
-      console.log('[Payment] Creating order for ₹', totalAmount);
-
-      const { data, error } = await supabase.functions.invoke('create-phonepe-payment', {
-        body: {
-          amount: totalAmount,
-          userId: user.id,
-          userEmail: user.email, // ✅ Add email
-          items: cartItems
-        }
-      });
-
-      console.log('[Payment] Response:', data);
-
-      if (error) {
-        console.error('[Payment] Error:', error);
-        throw new Error(error.message || 'Payment initialization failed');
-      }
-
-      if (data?.success && data?.paymentUrl) {
-        sessionStorage.setItem('merchantTransactionId', data.merchantTransactionId);
-        console.log('[Payment] Redirecting to PhonePe...');
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
         
-        window.location.href = data.paymentUrl;
-      } else {
-        throw new Error(data?.error || 'Payment URL not received');
-      }
+        if (!user) {
+          toast.error('Please sign in to continue');
+          navigate('/login');
+          return;
+        }
 
-    } catch (error) {
-      console.error('[Payment] Failed:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Payment failed';
-      
-      if (errorMessage.includes('KEY_NOT_CONFIGURED')) {
-        toast.error('Online payment is being set up. Please use Cash on Delivery for now.');
-      } else {
-        toast.error('Payment failed. Please try Cash on Delivery.');
+        console.log('[Razorpay] Creating order for ₹', totalAmount);
+
+        // Step 1: Create Razorpay order
+        const { data, error } = await supabase.functions.invoke('create-razorpay-order', {
+          body: {
+            amount: totalAmount,
+            userId: user.id,
+            userEmail: user.email,
+            items: cartItems
+          }
+        });
+
+        if (error || !data.success) {
+          throw new Error(data?.error || 'Failed to create order');
+        }
+
+        console.log('[Razorpay] Order created:', data.orderId);
+
+        // Step 2: Open Razorpay Checkout
+        const options: RazorpayOptions = {
+          key: data.keyId,
+          amount: data.amount,
+          currency: data.currency,
+          name: 'Xpress Prints',
+          description: `${cartItems.length} documents to print`,
+          order_id: data.orderId,
+          prefill: {
+            email: user.email || '',
+            contact: user.user_metadata?.phone || ''
+          },
+          theme: {
+            color: '#3b82f6'
+          },
+          handler: async (response: RazorpayResponse) => {
+            console.log('[Razorpay] Payment successful:', response);
+
+            try {
+              // Step 3: Verify payment
+              const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
+              const orderNumber = `ORD-${Date.now()}`;
+
+              const orderData = {
+                user_id: user.id,
+                user_email: user.email,
+                order_number: orderNumber,
+                total_amount: totalAmount,
+                payment_method: 'online',
+                delivery_otp: deliveryOtp,
+                status: 'pending',
+                order_items: cartItems.map(item => ({
+                  document_name: item.document_name,
+                  document_url: item.document_url,
+                  total_pages: item.total_pages,
+                  copies: item.copies,
+                  color_mode: item.color_mode,
+                  sides: item.sides,
+                  price: item.price,
+                  paper_size: item.paper_size,
+                  spiral_binding: item.spiral_binding || 0,
+                  record_binding: item.record_binding || 0,
+                  custom_pages_config: item.custom_pages_config
+                }))
+              };
+
+              const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-razorpay-payment', {
+                body: {
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  orderData: orderData
+                }
+              });
+
+              if (verifyError || !verifyData.success) {
+                throw new Error('Payment verification failed');
+              }
+
+              console.log('[Razorpay] Payment verified ✅');
+
+              // Clear cart
+              localStorage.removeItem('cart');
+              sessionStorage.removeItem('checkoutItems');
+              sessionStorage.removeItem('paymentMethod');
+
+              // Show success modal
+              setOrderDetails({ orderNumber, deliveryOtp });
+              setShowSuccessModal(true);
+
+            } catch (error) {
+              console.error('[Razorpay] Verification failed:', error);
+              toast.error('Payment verification failed. Please contact support.');
+            } finally {
+              setIsProcessing(false);
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              console.log('[Razorpay] Payment cancelled by user');
+              setIsProcessing(false);
+              toast.info('Payment cancelled');
+            }
+          }
+        };
+
+        const razorpay = new window.Razorpay(options);
+        razorpay.open();
+
+      } catch (error) {
+        console.error('[Razorpay] Error:', error);
+        toast.error('Failed to initiate payment. Please try again.');
+        setIsProcessing(false);
       }
-      
-      setIsProcessing(false);
-    }
-  };
+    };
+
+
 
   const handleCODOrder = async () => {
     setIsProcessing(true);
@@ -279,12 +390,12 @@ export default function OrderConfirmation() {
                     <CardTitle>Select Payment Method</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                    {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
                       <p className="text-xs text-blue-800">
                         💳 Online payments are being configured with PhonePe. 
                         We recommend Cash on Delivery for now - fast and secure!
                       </p>
-                    </div>
+                    </div> */}
 
                     <Button
                       variant={paymentMethod === 'cod' ? 'default' : 'outline'}
@@ -293,7 +404,7 @@ export default function OrderConfirmation() {
                       onClick={() => setPaymentMethod('cod')}
                     >
                       <Wallet className="mr-2 h-5 w-5" />
-                      Cash on Delivery ✅
+                      Cash on Delivery (COD)
                     </Button>
                     
                     <Button
@@ -303,7 +414,7 @@ export default function OrderConfirmation() {
                       onClick={() => setPaymentMethod('online')}
                     >
                       <Smartphone className="mr-2 h-5 w-5" />
-                      Pay Online (Coming Soon)
+                      Pay Online
                     </Button>
                   </CardContent>
                 </Card>
@@ -354,7 +465,7 @@ export default function OrderConfirmation() {
                     </div>
 
                     <Button
-                      onClick={paymentMethod === 'online' ? handlePhonePePayment : handleCODOrder}
+                      onClick={paymentMethod === 'online' ? handleRazorpayPayment : handleCODOrder}
                       className="w-full"
                       size="lg"
                       disabled={isProcessing}
