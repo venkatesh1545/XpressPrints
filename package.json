@@ -4,8 +4,8 @@
   "packageManager": "pnpm@8.10.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint --quiet ./src",
+    "build": "tsc -b && vite build && node scripts/copy-pdf-worker.js",
+    "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
