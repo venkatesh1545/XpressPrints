@@ -49,6 +49,44 @@ export default function OrderConfirmation() {
   const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.copies), 0);
   const totalAmount = subtotal + CONVENIENCE_FEE;
 
+  // ✅ Send email notifications to admin and customer
+  const sendNotifications = async (
+    orderNumber: string,
+    totalAmount: number,
+    items: CartItem[],
+    userEmail: string,
+    userName: string
+  ) => {
+    try {
+      console.log('[Notification] Sending emails...');
+      
+      const { error } = await supabase.functions.invoke('send-order-notifications', {
+        body: {
+          orderNumber,
+          totalAmount,
+          items: items.map(item => ({
+            document_name: item.document_name,
+            total_pages: item.total_pages,
+            copies: item.copies,
+            color_mode: item.color_mode || 'black & white'
+          })),
+          userEmail,
+          userName
+        }
+      });
+      
+      if (error) {
+        console.error('[Notification] Error:', error);
+        // Don't show error to user, just log it
+      } else {
+        console.log('[Notification] Emails sent successfully');
+      }
+    } catch (error) {
+      console.error('[Notification] Failed:', error);
+      // Don't fail the order if notification fails
+    }
+  };
+
   const handlePhonePePayment = async () => {
     setIsProcessing(true);
 
@@ -63,7 +101,6 @@ export default function OrderConfirmation() {
 
       console.log('[Payment] Creating order for ₹', totalAmount);
 
-      // Call Supabase Edge Function
       const { data, error } = await supabase.functions.invoke('create-phonepe-payment', {
         body: {
           amount: totalAmount,
@@ -83,7 +120,6 @@ export default function OrderConfirmation() {
         sessionStorage.setItem('merchantTransactionId', data.merchantTransactionId);
         console.log('[Payment] Redirecting to PhonePe...');
         
-        // Redirect to PhonePe
         window.location.href = data.paymentUrl;
       } else {
         throw new Error(data?.error || 'Payment URL not received');
@@ -147,6 +183,15 @@ export default function OrderConfirmation() {
       }
 
       console.log('[COD] Order created successfully!');
+      
+      // ✅ Send email notifications (don't await, let it run in background)
+      sendNotifications(
+        orderNumber,
+        totalAmount,
+        cartItems,
+        user.email || 'Unknown',
+        user.user_metadata?.full_name || 'Valued Customer'
+      );
       
       // Store order details for success modal
       setOrderDetails({
@@ -297,7 +342,7 @@ export default function OrderConfirmation() {
                     <p className="text-xs text-gray-500 text-center">
                       {paymentMethod === 'online' 
                         ? '🔒 You will be redirected to PhonePe for secure payment'
-                        : '✅ Free delivery within 2 hours • Pay when you receive'
+                        : '✅ Free delivery within 12-24 hours • Pay when you receive'
                       }
                     </p>
                   </CardContent>
@@ -322,7 +367,7 @@ export default function OrderConfirmation() {
             <DialogTitle className="text-center text-2xl">Order Placed Successfully!</DialogTitle>
             <DialogDescription className="text-center space-y-3 pt-4">
               <p className="text-base">
-                Your order has been confirmed and will be delivered within 2 hours.
+                Your order has been confirmed and will be delivered within 12-24 hours.
               </p>
               
               {orderDetails && (
@@ -340,6 +385,10 @@ export default function OrderConfirmation() {
                   </p>
                 </div>
               )}
+
+              <p className="text-sm text-gray-600">
+                📧 Confirmation emails have been sent to you and our admin.
+              </p>
 
               <p className="text-sm text-gray-600">
                 You can track your order status in the <strong>"My Orders"</strong> section.
