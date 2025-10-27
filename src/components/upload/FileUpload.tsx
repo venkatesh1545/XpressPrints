@@ -7,8 +7,13 @@ import { supabase } from '@/lib/supabase';
 import { UploadedFile } from '@/pages/Upload';
 import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
+// IMPORTANT: Use bundled worker for production
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+  ).toString();
+}
 
 interface FileUploadProps {
   onFilesUploaded: (files: UploadedFile[]) => void;
@@ -30,7 +35,8 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
         
         const loadingTask = pdfjsLib.getDocument({
           data: uint8Array,
-          verbosity: 0
+          verbosity: 0,
+          isEvalSupported: false,
         });
         
         const pdf = await loadingTask.promise;
@@ -49,7 +55,6 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
         file.type === 'application/msword'
       ) {
         console.log(`[DOCX Detection] Manual entry required for ${file.name}`);
-        // Return 0 to indicate manual input needed (orange status)
         return { pages: 0, estimated: true };
       } 
       
@@ -59,7 +64,6 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
         return { pages: 1, estimated: false };
       }
       
-      // Unsupported file type
       throw new Error('File type not supported. Please upload PDF, DOCX/DOC, or image files (PNG/JPG).');
       
     } catch (error) {
@@ -76,11 +80,9 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
 
       console.log(`[Upload] Starting upload: ${filePath}`);
 
-      // Get page count
       const { pages, estimated } = await getPageCount(file);
       console.log(`[Upload] Page count: ${pages} (${estimated ? 'needs manual entry' : 'accurate'})`);
 
-      // Upload to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('documents')
         .upload(filePath, file, {
@@ -95,7 +97,6 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
 
       console.log('[Upload] File uploaded successfully');
 
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from('documents')
         .getPublicUrl(filePath);
@@ -117,7 +118,6 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
       return;
     }
 
-    // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
@@ -127,7 +127,6 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
 
     setIsUploading(true);
 
-    // Initialize files with uploading status
     const newFiles: UploadedFile[] = acceptedFiles.map(file => ({
       id: `${Date.now()}-${file.name}-${Math.random()}`,
       name: file.name,
@@ -139,29 +138,25 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
     const currentFiles = [...uploadedFiles, ...newFiles];
     onFilesUploaded(currentFiles);
 
-    // Upload files one by one
     for (let i = 0; i < acceptedFiles.length; i++) {
       const file = acceptedFiles[i];
       const fileId = newFiles[i].id;
 
       try {
-        // Validate file size (50MB max)
         if (file.size > 50 * 1024 * 1024) {
           throw new Error('File size exceeds 50MB');
         }
 
-        // Upload file
         const { url, pages, estimated } = await uploadToSupabase(file);
 
-        // Update file status
         const updatedFiles = currentFiles.map(f => 
           f.id === fileId 
             ? { 
                 ...f, 
                 url, 
-                pages, // Will be 0 for DOCX files
+                pages,
                 estimated,
-                estimatedPages: pages, // Store original value
+                estimatedPages: pages,
                 status: 'success' as const 
               }
             : f
@@ -267,4 +262,3 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
     </Card>
   );
 }
-
