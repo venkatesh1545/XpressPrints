@@ -140,25 +140,65 @@ export default function AdminOrders() {
     setUpdating(orderId);
     
     try {
-      const { error } = await supabase
+        console.log(`[Admin] Updating order ${orderId} to status: ${newStatus}`);
+        
+        // Get order details first
+        const order = orders.find(o => o.id === orderId);
+        if (!order) throw new Error('Order not found');
+
+        // Update status in database
+        const { error } = await supabase
         .from('orders')
         .update({ status: newStatus })
         .eq('id', orderId);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      setOrders(orders.map(order => 
+        // Update local state
+        setOrders(orders.map(order => 
         order.id === orderId ? { ...order, status: newStatus } : order
-      ));
+        ));
 
-      toast.success(`Order status updated to ${newStatus}`);
+        toast.success(`Order status updated to ${newStatus}`);
+
+        // Send email notification for ready/delivered status
+        if (newStatus === 'ready' || newStatus === 'delivered') {
+        try {
+            // Get user email from Supabase auth
+            const { data: userData } = await supabase.auth.admin.getUserById(order.user_id);
+            
+            if (userData?.user?.email) {
+            const response = await supabase.functions.invoke('send-status-update-email', {
+                body: {
+                orderNumber: order.order_number,
+                newStatus: newStatus,
+                userEmail: userData.user.email,
+                userName: userData.user.user_metadata?.full_name || '',
+                totalAmount: order.total_amount
+                }
+            });
+
+            if (response.error) {
+                console.error('Email notification failed:', response.error);
+            } else {
+                console.log('Email notification sent successfully');
+            }
+            }
+        } catch (emailError) {
+            console.error('Failed to send email:', emailError);
+            // Don't fail the status update if email fails
+        }
+        }
+
     } catch (err) {
-      console.error('Error updating status:', err);
-      toast.error('Failed to update status');
+        console.error('Error updating status:', err);
+        toast.error(`Failed to update status`);
     } finally {
-      setUpdating(null);
+        setUpdating(null);
     }
   };
+
+
 
   const handlePreviewFile = (fileUrl: string) => {
     window.open(fileUrl, '_blank');
