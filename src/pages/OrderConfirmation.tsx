@@ -2,206 +2,250 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { CheckCircle, FileText, Home, Package } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
+import { CartItem } from '@/types';
+import { formatPrice } from '@/lib/pricing';
 import Header from '@/components/layout/Header';
 import MobileNav from '@/components/layout/MobileNav';
-import { CartItem } from '@/types';
+import { Smartphone, Wallet } from 'lucide-react';
 
-interface OrderConfirmationData {
-  order: {
-    id: string;
-    order_number: string;
-    delivery_otp?: string;
-    scheduled_delivery_time?: string;
-    total_amount: number;
-  };
-  items: CartItem[];
-  paymentMethod: 'online' | 'cod';
-  total: number;
-}
+const CONVENIENCE_FEE = 4;
 
 export default function OrderConfirmation() {
-  const [orderData, setOrderData] = useState<OrderConfirmationData | null>(null);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
+  const [isProcessing, setIsProcessing] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Get order confirmation data from sessionStorage
-    const data = sessionStorage.getItem('orderConfirmation');
-    if (data) {
-      setOrderData(JSON.parse(data));
-      // Clear the data after loading
-      sessionStorage.removeItem('orderConfirmation');
+    const checkoutData = sessionStorage.getItem('checkoutItems');
+    const savedPaymentMethod = sessionStorage.getItem('paymentMethod');
+    
+    if (checkoutData) {
+      setCartItems(JSON.parse(checkoutData));
     } else {
-      // No order data, redirect to cart
       navigate('/cart');
+    }
+    
+    if (savedPaymentMethod) {
+      setPaymentMethod(savedPaymentMethod as 'online' | 'cod');
     }
   }, [navigate]);
 
-  if (!orderData) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600">Loading order confirmation...</p>
-        </div>
-      </div>
-    );
-  }
+  const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.copies), 0);
+  const totalAmount = subtotal + CONVENIENCE_FEE;
 
-  const estimatedDelivery = orderData.order.scheduled_delivery_time 
-    ? new Date(orderData.order.scheduled_delivery_time)
-    : new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const handlePhonePePayment = async () => {
+    setIsProcessing(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        toast.error('Please sign in to continue');
+        navigate('/login');
+        return;
+      }
+
+      // Call backend to create PhonePe payment
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-phonepe-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({
+          amount: totalAmount,
+          userId: user.id,
+          items: cartItems
+        })
+      });
+
+      const { paymentUrl, merchantTransactionId } = await response.json();
+
+      if (paymentUrl) {
+        // Store transaction ID for verification
+        sessionStorage.setItem('merchantTransactionId', merchantTransactionId);
+        
+        // Redirect to PhonePe payment page
+        window.location.href = paymentUrl;
+      } else {
+        throw new Error('Failed to initialize payment');
+      }
+
+    } catch (error) {
+      console.error('Payment error:', error);
+      toast.error('Payment initialization failed');
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCODOrder = async () => {
+    setIsProcessing(true);
+    
+    try {
+      await createOrder('cod', 'pending', null);
+      toast.success('Order placed successfully!');
+      
+      // Clear cart and session
+      localStorage.removeItem('cart');
+      sessionStorage.removeItem('checkoutItems');
+      
+      navigate('/orders');
+    } catch (error) {
+      console.error('COD order error:', error);
+      toast.error('Order placement failed');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const createOrder = async (
+    method: 'online' | 'cod',
+    paymentStatus: string,
+    transactionId: string | null
+  ) => {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    const orderData = {
+      user_id: user.id,
+      order_number: `ORD-${Date.now()}`,
+      total_amount: totalAmount,
+      payment_method: method,
+      payment_status: paymentStatus,
+      payment_id: transactionId,
+      delivery_otp: deliveryOtp,
+      status: 'pending',
+      order_items: cartItems
+    };
+
+    const { error } = await supabase
+      .from('orders')
+      .insert([orderData]);
+
+    if (error) throw error;
+  };
+
+  if (cartItems.length === 0) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
       
       <main className="container mx-auto px-4 py-8 pb-20 md:pb-8">
-        <div className="max-w-2xl mx-auto">
-          {/* Success Header */}
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="h-8 w-8 text-green-600" />
+        <div className="max-w-4xl mx-auto">
+          <h1 className="text-3xl font-bold mb-8">Order Confirmation</h1>
+
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Order Items */}
+            <div className="lg:col-span-2 space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Order Items ({cartItems.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {cartItems.map((item) => (
+                      <div key={item.id} className="flex justify-between text-sm">
+                        <div>
+                          <p className="font-medium">{item.document_name}</p>
+                          <p className="text-gray-600 text-xs">
+                            {item.total_pages} pages • {item.copies} {item.copies === 1 ? 'copy' : 'copies'}
+                          </p>
+                        </div>
+                        <span className="font-medium">{formatPrice(item.price * item.copies)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Select Payment Method</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Button
+                    variant={paymentMethod === 'online' ? 'default' : 'outline'}
+                    className="w-full justify-start"
+                    size="lg"
+                    onClick={() => setPaymentMethod('online')}
+                  >
+                    <Smartphone className="mr-2 h-5 w-5" />
+                    Pay Online (UPI, Cards, Wallets)
+                  </Button>
+                  
+                  <Button
+                    variant={paymentMethod === 'cod' ? 'default' : 'outline'}
+                    className="w-full justify-start"
+                    size="lg"
+                    onClick={() => setPaymentMethod('cod')}
+                  >
+                    <Wallet className="mr-2 h-5 w-5" />
+                    Cash on Delivery
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Order Confirmed!</h1>
-            <p className="text-gray-600">
-              Your printing order has been placed successfully
-            </p>
-          </div>
 
-          {/* Order Details */}
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Order Details</span>
-                <Badge variant="secondary">{orderData.order.order_number}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-gray-600">Payment Method</p>
-                  <p className="font-medium capitalize">
-                    {orderData.paymentMethod === 'cod' ? 'Cash on Delivery' : 'Online Payment'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-600">Total Amount</p>
-                  <p className="font-medium">₹{orderData.order.total_amount.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-gray-600">Estimated Delivery</p>
-                  <p className="font-medium">
-                    {estimatedDelivery.toLocaleString('en-IN', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </p>
-                </div>
-                {orderData.order.delivery_otp && (
-                  <div>
-                    <p className="text-gray-600">Delivery OTP</p>
-                    <p className="font-mono font-bold text-blue-600">{orderData.order.delivery_otp}</p>
+            {/* Order Summary */}
+            <div>
+              <Card className="sticky top-4">
+                <CardHeader>
+                  <CardTitle>Order Summary</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Subtotal ({cartItems.length} items)</span>
+                    <span className="font-medium">{formatPrice(subtotal)}</span>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                  
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Delivery</span>
+                    <span className="text-green-600 font-medium">Free</span>
+                  </div>
+                  
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Convenience Fee</span>
+                    <span className="font-medium">{formatPrice(CONVENIENCE_FEE)}</span>
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div className="flex justify-between">
+                    <span className="font-medium">Total</span>
+                    <span className="text-xl font-bold">{formatPrice(totalAmount)}</span>
+                  </div>
 
-          {/* Order Items */}
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Order Items ({orderData.items.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {orderData.items.map((item, index) => (
-                  <div key={index} className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                    <FileText className="h-5 w-5 text-blue-600 mt-0.5" />
-                    <div className="flex-1">
-                      <h4 className="font-medium">{item.document_name}</h4>
-                      <p className="text-sm text-gray-600">
-                        {item.total_pages} pages • {item.copies} copies • {item.color_mode} • {item.sides}
-                      </p>
-                      {(item.spiral_binding > 0 || item.record_binding > 0) && (
-                        <p className="text-sm text-gray-600">
-                          {item.spiral_binding > 0 && `Spiral Binding: ${item.spiral_binding}`}
-                          {item.spiral_binding > 0 && item.record_binding > 0 && ' • '}
-                          {item.record_binding > 0 && `Record Binding: ${item.record_binding}`}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold">₹{item.price.toFixed(2)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  <Button
+                    onClick={paymentMethod === 'online' ? handlePhonePePayment : handleCODOrder}
+                    className="w-full"
+                    size="lg"
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? 'Processing...' : 
+                     paymentMethod === 'online' ? 'Proceed to Pay' : 'Place Order'}
+                  </Button>
 
-          {/* Important Information */}
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Package className="mr-2 h-5 w-5" />
-                Important Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start space-x-2">
-                  <span className="text-blue-600 font-bold">•</span>
-                  <span>Your order will be processed and ready within 2 hours</span>
-                </div>
-                {orderData.order.delivery_otp && (
-                  <div className="flex items-start space-x-2">
-                    <span className="text-blue-600 font-bold">•</span>
-                    <span>
-                      Delivery OTP: <span className="font-mono font-bold">{orderData.order.delivery_otp}</span> - 
-                      Share this with our delivery person
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-start space-x-2">
-                  <span className="text-blue-600 font-bold">•</span>
-                  <span>
-                    {orderData.paymentMethod === 'cod' 
-                      ? 'Payment will be collected at the time of delivery'
-                      : 'Payment has been processed successfully'
+                  <p className="text-xs text-gray-500 text-center">
+                    {paymentMethod === 'online' 
+                      ? 'You will be redirected to PhonePe for secure payment'
+                      : 'Pay cash when your order is delivered'
                     }
-                  </span>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <span className="text-blue-600 font-bold">•</span>
-                  <span>You will receive updates via email and SMS</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Action Buttons */}
-          <div className="space-y-3">
-            <Button 
-              className="w-full" 
-              size="lg"
-              onClick={() => navigate('/orders')}
-            >
-              <FileText className="mr-2 h-4 w-4" />
-              Track Your Order
-            </Button>
-            
-            <Button 
-              variant="outline" 
-              className="w-full" 
-              size="lg"
-              onClick={() => navigate('/')}
-            >
-              <Home className="mr-2 h-4 w-4" />
-              Back to Home
-            </Button>
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </main>
