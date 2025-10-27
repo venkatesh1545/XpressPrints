@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 interface PrintOptionsProps {
   fileName: string;
   totalPages: number;
+  initialOptions?: PrintJobOptions;
   onOptionsChange: (options: PrintJobOptions) => void;
 }
 
@@ -29,8 +30,8 @@ export interface PrintJobOptions {
   };
 }
 
-export default function PrintOptions({ fileName, totalPages, onOptionsChange }: PrintOptionsProps) {
-  const [options, setOptions] = useState<PrintJobOptions>({
+export default function PrintOptions({ fileName, totalPages, initialOptions, onOptionsChange }: PrintOptionsProps) {
+  const [options, setOptions] = useState<PrintJobOptions>(initialOptions || {
     copies: 1,
     colorMode: 'bw',
     sides: 'single',
@@ -42,6 +43,13 @@ export default function PrintOptions({ fileName, totalPages, onOptionsChange }: 
       colorPages: ''
     }
   });
+
+  // Update options when initialOptions changes (when switching between files)
+  useEffect(() => {
+    if (initialOptions) {
+      setOptions(initialOptions);
+    }
+  }, [initialOptions]);
 
   const updateOptions = (newOptions: Partial<PrintJobOptions>) => {
     const updated = { ...options, ...newOptions };
@@ -114,10 +122,8 @@ export default function PrintOptions({ fileName, totalPages, onOptionsChange }: 
   // Calculate effective pages for pricing
   const getEffectivePagesForPricing = () => {
     if (options.colorMode === 'custom' && customPageCount) {
-      // For custom mode, use total selected pages
       return customPageCount.total * options.copies;
     }
-    // For bw/color mode, use total document pages
     return totalPages * options.copies;
   };
 
@@ -253,7 +259,7 @@ export default function PrintOptions({ fileName, totalPages, onOptionsChange }: 
                   <Input
                     id="bw-pages"
                     type="text"
-                    placeholder="e.g., 1-10, 15, 20-25"
+                    placeholder="e.g., 3, 5-108"
                     value={options.customPages?.bwPages || ''}
                     onChange={(e) => handleCustomPagesChange('bwPages', e.target.value)}
                     className="mt-1"
@@ -272,7 +278,7 @@ export default function PrintOptions({ fileName, totalPages, onOptionsChange }: 
                   <Input
                     id="color-pages"
                     type="text"
-                    placeholder="e.g., 11-14, 16-19"
+                    placeholder="e.g., 1, 2, 4"
                     value={options.customPages?.colorPages || ''}
                     onChange={(e) => handleCustomPagesChange('colorPages', e.target.value)}
                     className="mt-1"

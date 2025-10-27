@@ -46,17 +46,20 @@ export interface CartItem {
   document_url: string;
   total_pages: number;
   copies: number;
-  color_mode: 'bw' | 'color' | 'custom';
-  sides: 'single' | 'double';
+  color_mode: string;
+  sides: string;
   paper_size: string;
   spiral_binding: number;
   record_binding: number;
   price: number;
+  // Add custom page config
   custom_pages_config?: {
-    bwPages: string;      // e.g., "1-10, 15, 20"
-    colorPages: string;   // e.g., "11-14, 16-19"
+    bwPages: string;
+    colorPages: string;
   };
 }
+
+
 
 
 export interface OrderItem {

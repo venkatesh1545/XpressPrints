@@ -50,7 +50,11 @@ export default function Customize() {
           sides: 'single',
           paperSize: 'A4',
           spiralBinding: 0,
-          recordBinding: 0
+          recordBinding: 0,
+          customPages: {
+            bwPages: '',
+            colorPages: ''
+          }
         };
       });
       setPrintOptions(defaultOptions);
@@ -71,15 +75,14 @@ export default function Customize() {
   };
 
   const handleCancelConfirm = () => {
-    // Clear session storage
     sessionStorage.removeItem('uploadedFiles');
     toast.info('Order cancelled');
-    navigate('/', { replace: true }); // Go to dashboard
+    navigate('/', { replace: true });
   };
 
   const handleCancelDecline = () => {
     setShowCancelDialog(false);
-    navigate('/upload'); // Go back to upload more files
+    navigate('/upload');
   };
 
   const addToCart = () => {
@@ -100,7 +103,8 @@ export default function Customize() {
           paper_size: options.paperSize,
           spiral_binding: options.spiralBinding,
           record_binding: options.recordBinding,
-          price: 0
+          price: 0,
+          custom_pages_config: options.customPages // ✅ Use customPages from options
         };
         
         cartItem.price = calculateItemPrice(cartItem);
@@ -111,7 +115,6 @@ export default function Customize() {
       const updatedCart = [...existingCart, ...newCartItems];
       localStorage.setItem('cart', JSON.stringify(updatedCart));
       
-      // Clear uploaded files after adding to cart
       sessionStorage.removeItem('uploadedFiles');
       
       toast.success(`${newCartItems.length} item(s) added to cart!`);
@@ -169,6 +172,7 @@ export default function Customize() {
           <PrintOptions
             fileName={currentFile.name}
             totalPages={currentFile.pages || 1}
+            initialOptions={printOptions[currentFile.id]}
             onOptionsChange={(options) => handleOptionsChange(currentFile.id, options)}
           />
 

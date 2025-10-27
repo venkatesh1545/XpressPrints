@@ -12,6 +12,7 @@ import { CartItem } from '@/types';
 import { calculateCartTotal, formatPrice } from '@/lib/pricing';
 
 const CONVENIENCE_FEE = 4; // ₹4 convenience fee
+const CONVENIENCE_FEE_THRESHOLD = 50; // Apply fee only if subtotal > ₹50
 
 export default function Cart() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -115,7 +116,11 @@ export default function Cart() {
 
   const selectedCartItems = cartItems.filter(item => selectedItems.has(item.id));
   const subtotal = calculateCartTotal(selectedCartItems);
-  const totalWithFee = subtotal + CONVENIENCE_FEE;
+  
+  // Apply convenience fee only if subtotal > ₹50
+  const convenienceFee = subtotal > CONVENIENCE_FEE_THRESHOLD ? CONVENIENCE_FEE : 0;
+  const totalWithFee = subtotal + convenienceFee;
+  
   const allSelected = cartItems.length > 0 && selectedItems.size === cartItems.length;
 
   if (cartItems.length === 0) {
@@ -290,8 +295,18 @@ export default function Cart() {
                   
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Convenience Fee</span>
-                    <span className="font-medium">{formatPrice(CONVENIENCE_FEE)}</span>
+                    {convenienceFee > 0 ? (
+                      <span className="font-medium">{formatPrice(convenienceFee)}</span>
+                    ) : (
+                      <span className="text-green-600 font-medium">Free</span>
+                    )}
                   </div>
+                  
+                  {subtotal <= CONVENIENCE_FEE_THRESHOLD && subtotal > 0 && (
+                    <p className="text-xs text-gray-500 italic">
+                      💡 No convenience fee for orders ≤ ₹{CONVENIENCE_FEE_THRESHOLD}
+                    </p>
+                  )}
                   
                   <Separator />
                   

@@ -21,9 +21,12 @@ import {
   Loader2,
   LogOut,
   RefreshCw,
-  Download,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
   ChevronLeft,
   ChevronRight,
+  Palette,
   type LucideIcon
 } from 'lucide-react';
 
@@ -39,6 +42,10 @@ interface OrderItem {
   paper_size?: string;
   spiral_binding?: number;
   record_binding?: number;
+  custom_pages_config?: {
+    bwPages: string;
+    colorPages: string;
+  };
 }
 
 interface Order {
@@ -63,6 +70,7 @@ const ORDERS_PER_PAGE = 10;
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -77,7 +85,6 @@ export default function AdminOrders() {
 
     loadOrders();
 
-    // Real-time subscription
     const subscription = supabase
       .channel('admin-orders')
       .on(
@@ -108,10 +115,7 @@ export default function AdminOrders() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('[Admin] Query error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
       setOrders(data || []);
     } catch (err) {
@@ -120,6 +124,16 @@ export default function AdminOrders() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleOrder = (orderId: string) => {
+    const newExpanded = new Set(expandedOrders);
+    if (newExpanded.has(orderId)) {
+      newExpanded.delete(orderId);
+    } else {
+      newExpanded.add(orderId);
+    }
+    setExpandedOrders(newExpanded);
   };
 
   const handleStatusUpdate = async (orderId: string, newStatus: string) => {
@@ -146,31 +160,8 @@ export default function AdminOrders() {
     }
   };
 
-  const handleDownloadFile = async (fileUrl: string, fileName: string) => {
-    try {
-      toast.loading('Downloading file...');
-      
-      // Download file
-      const response = await fetch(fileUrl);
-      const blob = await response.blob();
-      
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      toast.dismiss();
-      toast.success('File downloaded!');
-    } catch (err) {
-      toast.dismiss();
-      toast.error('Failed to download file');
-      console.error('Download error:', err);
-    }
+  const handlePreviewFile = (fileUrl: string) => {
+    window.open(fileUrl, '_blank');
   };
 
   const handleLogout = () => {
@@ -308,95 +299,149 @@ export default function AdminOrders() {
             </Card>
           ) : (
             <>
-              {currentOrders.map((order) => (
-                <Card key={order.id}>
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-bold text-lg">{order.order_number}</h3>
-                          {getStatusBadge(order.status)}
+              {currentOrders.map((order) => {
+                const isExpanded = expandedOrders.has(order.id);
+
+                return (
+                  <Card key={order.id} className="overflow-hidden">
+                    {/* Order Header */}
+                    <div
+                      className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => toggleOrder(order.id)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="font-bold text-lg">{order.order_number}</h3>
+                            {getStatusBadge(order.status)}
+                            <Badge variant="outline">
+                              {order.order_items.length} {order.order_items.length > 1 ? 'files' : 'file'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600">{formatDate(order.created_at)}</p>
+                          <p className="text-xs text-gray-500 font-mono mt-1">
+                            User ID: {order.user_id.substring(0, 8)}...
+                          </p>
+                          <p className="text-sm text-gray-700 mt-2">
+                            <strong>{order.order_items.length} files</strong> to print • <strong>{order.payment_method.toUpperCase()}</strong>
+                          </p>
                         </div>
-                        <p className="text-sm text-gray-600">{formatDate(order.created_at)}</p>
-                        <p className="text-xs text-gray-500 font-mono mt-1">
-                          User ID: {order.user_id.substring(0, 8)}...
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-bold">{formatPrice(order.total_amount)}</p>
-                        <p className="text-sm text-gray-600 capitalize">{order.payment_method}</p>
+                        <div className="text-right flex items-start gap-4">
+                          <div>
+                            <p className="text-2xl font-bold">{formatPrice(order.total_amount)}</p>
+                            <p className="text-xs text-gray-600">Delivery OTP: <span className="font-mono font-bold text-blue-600">{order.delivery_otp}</span></p>
+                          </div>
+                          {isExpanded ? (
+                            <ChevronUp className="h-6 w-6 text-gray-400" />
+                          ) : (
+                            <ChevronDown className="h-6 w-6 text-gray-400" />
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Order Items with Download Links */}
-                    <div className="space-y-3 mb-4 pb-4 border-b">
-                      <h4 className="font-semibold text-sm text-gray-700">Files to Print:</h4>
-                      {order.order_items.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div className="flex items-center gap-3 flex-1">
-                            <FileText className="h-5 w-5 text-gray-400" />
-                            <div className="flex-1">
-                              <p className="font-medium text-sm">{item.document_name}</p>
-                              <p className="text-xs text-gray-500">
-                                {item.total_pages} pages • {item.copies} {item.copies > 1 ? 'copies' : 'copy'} • {item.color_mode} • {item.sides}
-                              </p>
+                    {/* Expanded Content */}
+                    {isExpanded && (
+                      <div className="border-t bg-gray-50">
+                        <CardContent className="p-6">
+                          <div className="mb-6">
+                            <h4 className="font-semibold text-sm text-gray-700 mb-3">
+                              Files to Print ({order.order_items.length}):
+                            </h4>
+                            <div className="space-y-3">
+                              {order.order_items.map((item, idx) => (
+                                <div key={idx} className="bg-white rounded-lg border hover:border-blue-300 transition-colors overflow-hidden">
+                                  {/* File Header */}
+                                  <div className="flex items-center justify-between p-3">
+                                    <div className="flex items-center gap-3 flex-1">
+                                      <div className="bg-blue-100 p-2 rounded">
+                                        <FileText className="h-5 w-5 text-blue-600" />
+                                      </div>
+                                      <div className="flex-1">
+                                        <p className="font-medium text-sm">{item.document_name}</p>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                          {item.total_pages} pages • {item.copies} {item.copies > 1 ? 'copies' : 'copy'} • {item.color_mode} • {item.sides}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <span className="font-bold text-gray-900 text-lg">{formatPrice(item.price)}</span>
+                                      <Button
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handlePreviewFile(item.document_url);
+                                        }}
+                                        className="bg-blue-600 hover:bg-blue-700"
+                                      >
+                                        <ExternalLink className="h-4 w-4 mr-1" />
+                                        Preview & Print
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  {/* Custom Page Details */}
+                                  {item.color_mode === 'custom' && item.custom_pages_config && (
+                                    <div className="bg-amber-50 border-t border-amber-200 p-3">
+                                      <div className="flex items-start gap-2">
+                                        <Palette className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                                        <div className="flex-1">
+                                          <p className="text-sm font-medium text-amber-900 mb-2">⚠️ Custom Page Selection:</p>
+                                          <div className="space-y-1 text-xs">
+                                            {item.custom_pages_config.colorPages && (
+                                              <p className="text-amber-800">
+                                                <span className="font-semibold">Color Pages:</span> {item.custom_pages_config.colorPages}
+                                              </p>
+                                            )}
+                                            {item.custom_pages_config.bwPages && (
+                                              <p className="text-amber-800">
+                                                <span className="font-semibold">B&W Pages:</span> {item.custom_pages_config.bwPages}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span className="font-bold text-gray-900">{formatPrice(item.price)}</span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDownloadFile(item.document_url, item.document_name)}
-                            >
-                              <Download className="h-4 w-4 mr-1" />
-                              Download
-                            </Button>
+
+                          {/* Status Update */}
+                          <div className="flex items-center justify-between pt-4 border-t">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-gray-600 font-medium">Update Status:</span>
+                              <Select
+                                value={order.status}
+                                onValueChange={(value) => handleStatusUpdate(order.id, value)}
+                                disabled={updating === order.id}
+                              >
+                                <SelectTrigger className="w-[180px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="pending">Pending</SelectItem>
+                                  <SelectItem value="processing">Processing</SelectItem>
+                                  <SelectItem value="ready">Ready</SelectItem>
+                                  <SelectItem value="delivered">Delivered</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {updating === order.id && (
+                              <div className="text-sm text-blue-600 flex items-center gap-2">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Updating status...
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Status Update & OTP */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">Update Status:</span>
-                          <Select
-                            value={order.status}
-                            onValueChange={(value) => handleStatusUpdate(order.id, value)}
-                            disabled={updating === order.id}
-                          >
-                            <SelectTrigger className="w-[180px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pending">Pending</SelectItem>
-                              <SelectItem value="processing">Processing</SelectItem>
-                              <SelectItem value="ready">Ready</SelectItem>
-                              <SelectItem value="delivered">Delivered</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <p className="text-xs text-gray-600">Delivery OTP</p>
-                        <p className="font-mono font-bold text-lg text-blue-600">
-                          {order.delivery_otp}
-                        </p>
-                      </div>
-                    </div>
-
-                    {updating === order.id && (
-                      <div className="mt-2 text-sm text-blue-600 flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Updating status...
+                        </CardContent>
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-              ))}
+                  </Card>
+                );
+              })}
 
               {/* Pagination */}
               {totalPages > 1 && (
