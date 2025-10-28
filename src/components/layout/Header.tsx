@@ -79,7 +79,7 @@ export default function Header({ cartItemsCount = 0 }: HeaderProps) {
                   <User className="mr-2 h-4 w-4" />
                   Dashboard
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/orders')}>
+                <DropdownMenuItem onClick={() => navigate('/my-orders')}>
                   <FileText className="mr-2 h-4 w-4" />
                   Orders
                 </DropdownMenuItem>
