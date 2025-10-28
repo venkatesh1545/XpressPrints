@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
 import MobileNav from '@/components/layout/MobileNav';
 import { CartItem } from '@/types';
-import { calculateCartTotal, formatPrice } from '@/lib/pricing';
+import { calculateCartTotal, formatPrice, calculateItemPrice } from '@/lib/pricing';
 
 const CONVENIENCE_FEE = 4;
 const CONVENIENCE_FEE_THRESHOLD = 50;
@@ -240,8 +240,9 @@ export default function Cart() {
                         
                         <div className="text-right">
                           <p className="text-lg font-bold text-gray-900">
-                            {formatPrice(item.price * item.copies)}
+                            {formatPrice(calculateItemPrice(item))}
                           </p>
+
                         </div>
                       </div>
 
@@ -359,8 +360,9 @@ export default function Cart() {
 
                       <div className="flex flex-col items-end space-y-2">
                         <p className="text-lg font-bold text-gray-900">
-                          {formatPrice(item.price * item.copies)}
+                          {formatPrice(calculateItemPrice(item))}
                         </p>
+
                         
                         <div className="flex space-x-1">
                           <Button
