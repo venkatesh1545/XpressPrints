@@ -216,6 +216,13 @@ export default function OrderConfirmation() {
 
               console.log('[Razorpay] Payment verified ✅');
 
+              sendNotifications(
+                orderNumber,
+                totalAmount,
+                cartItems,
+                user.email || 'Unknown',
+                user.user_metadata?.full_name || 'Valued Customer'
+              );
               // Clear cart
               localStorage.removeItem('cart');
               sessionStorage.removeItem('checkoutItems');

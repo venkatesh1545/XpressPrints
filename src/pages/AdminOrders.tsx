@@ -143,101 +143,97 @@ export default function AdminOrders() {
   try {
     console.log(`[Admin] Updating order ${orderId} to status: ${newStatus}`);
     
-    // Get order details first
-    const order = orders.find(o => o.id === orderId);
-    if (!order) throw new Error('Order not found');
-
-    // Update status in database
-    const { error } = await supabase
-      .from('orders')
-      .update({ status: newStatus })
-      .eq('id', orderId);
-
-    if (error) throw error;
-
-    // Update local state
-    setOrders(orders.map(order => 
-      order.id === orderId ? { ...order, status: newStatus } : order
-    ));
-
-    toast.success(`Order status updated to ${newStatus}`);
-
-    // Send email notification for ready/delivered status
-    if ((newStatus === 'ready' || newStatus === 'delivered') && order.user_email) {
-      try {
-        const response = await supabase.functions.invoke('send-status-update-email', {
-          body: {
-            orderNumber: order.order_number,
-            newStatus: newStatus,
-            userEmail: order.user_email, // ✅ Use stored email
-            userName: '', // We don't have name stored, but that's okay
-            totalAmount: order.total_amount
-          }
-        });
-
-        if (response.error) {
-          console.error('Email notification failed:', response.error);
-        } else {
-          console.log('✅ Email notification sent successfully');
-        }
-      } catch (emailError) {
-        console.error('Failed to send email:', emailError);
-        // Don't fail the status update if email fails
+    // Call Edge Function to handle everything
+    const { data, error } = await supabase.functions.invoke('update-order-status', {
+      body: {
+        orderId: orderId,
+        newStatus: newStatus
       }
+    });
+
+    if (error) {
+      console.error('[Admin] Error:', error);
+      throw new Error(error.message);
     }
 
+    if (!data.success) {
+      throw new Error(data.error || 'Update failed');
+    }
+
+    // Update local state
+    setOrders(orders.map(o => 
+      o.id === orderId ? { ...o, status: newStatus } : o
+    ));
+
+    console.log('[Admin] ✅', data.message);
+    toast.success(data.message || `Order status updated to ${newStatus}`);
+
   } catch (err) {
-    console.error('Error updating status:', err);
-    toast.error(`Failed to update status`);
+    console.error('[Admin] Error updating status:', err);
+    toast.error('Failed to update status');
   } finally {
     setUpdating(null);
   }
 };
 
 
+  // ✅ Separate email sending function
+  const sendStatusEmail = async (order: Order, newStatus: string, userEmail: string, userName: string) => {
+    console.log('[Admin] Sending status update email to:', userEmail);
 
+    const response = await supabase.functions.invoke('send-status-update-email', {
+      body: {
+        orderNumber: order.order_number,
+        newStatus: newStatus,
+        userEmail: userEmail,
+        userName: userName,
+        totalAmount: order.total_amount
+      }
+    });
 
-const handlePreviewFile = async (fileUrl: string) => {
-  try {
-    console.log('[Admin] Original URL:', fileUrl);
-    
-    // Extract the file path from the full URL
-    // URL format: https://xxx.supabase.co/storage/v1/object/public/documents/documents/filename.pdf
-    const pathMatch = fileUrl.match(/\/storage\/v1\/object\/public\/documents\/(.*)/);
-    
-    if (!pathMatch || !pathMatch[1]) {
-      console.error('[Admin] Could not extract file path from URL');
-      toast.error('Invalid file URL');
-      return;
+    if (response.error) {
+      console.error('[Admin] Email notification failed:', response.error);
+      toast.error('Status updated but email failed to send');
+    } else {
+      console.log('[Admin] ✅ Email notification sent successfully');
+      toast.success(`Status updated and ${newStatus} email sent to customer`);
     }
+  };
 
-    const filePath = pathMatch[1]; // This will be "documents/filename.pdf"
-    console.log('[Admin] File path:', filePath);
+  const handlePreviewFile = async (fileUrl: string) => {
+    try {
+      console.log('[Admin] Original URL:', fileUrl);
+      
+      const pathMatch = fileUrl.match(/\/storage\/v1\/object\/public\/documents\/(.*)/);
+      
+      if (!pathMatch || !pathMatch[1]) {
+        console.error('[Admin] Could not extract file path from URL');
+        toast.error('Invalid file URL');
+        return;
+      }
 
-    // Generate a signed URL that bypasses RLS (valid for 1 hour)
-    const { data, error } = await supabase.storage
-      .from('documents')
-      .createSignedUrl(filePath, 3600);
+      const filePath = pathMatch[1];
+      console.log('[Admin] File path:', filePath);
 
-    if (error) {
-      console.error('[Admin] Signed URL error:', error);
-      // If signed URL fails, the file might not exist
-      toast.error('File not found or has been deleted');
-      return;
+      const { data, error } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(filePath, 3600);
+
+      if (error) {
+        console.error('[Admin] Signed URL error:', error);
+        toast.error('File not found or has been deleted');
+        return;
+      }
+
+      if (data?.signedUrl) {
+        console.log('[Admin] Opening signed URL');
+        window.open(data.signedUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('[Admin] Error:', error);
+      toast.error('Failed to open file');
     }
-
-    if (data?.signedUrl) {
-      console.log('[Admin] Opening signed URL');
-      window.open(data.signedUrl, '_blank');
-    }
-  } catch (error) {
-    console.error('[Admin] Error:', error);
-    toast.error('Failed to open file');
-  }
-};
-
-
-
+  };
 
   const handleLogout = () => {
     sessionStorage.removeItem('admin_logged_in');
@@ -303,22 +299,22 @@ const handlePreviewFile = async (fileUrl: string) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Admin Header */}
-      <div className="bg-white border-b">
-        <div className="container mx-auto px-4 py-4">
+      {/* Admin Header - Mobile Optimized */}
+      <div className="bg-white border-b sticky top-0 z-50">
+        <div className="container mx-auto px-3 md:px-4 py-3 md:py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-              <p className="text-sm text-gray-600">Manage all orders</p>
+              <h1 className="text-lg md:text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+              <p className="text-xs md:text-sm text-gray-600">Manage all orders</p>
             </div>
-            <div className="flex items-center gap-2">
-              <Button onClick={loadOrders} variant="outline" size="sm">
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
+            <div className="flex items-center gap-1 md:gap-2">
+              <Button onClick={loadOrders} variant="outline" size="sm" className="h-8 md:h-9">
+                <RefreshCw className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
+                <span className="hidden md:inline">Refresh</span>
               </Button>
-              <Button onClick={handleLogout} variant="outline" size="sm">
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
+              <Button onClick={handleLogout} variant="outline" size="sm" className="h-8 md:h-9">
+                <LogOut className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
+                <span className="hidden md:inline">Logout</span>
               </Button>
             </div>
           </div>
@@ -326,50 +322,51 @@ const handlePreviewFile = async (fileUrl: string) => {
       </div>
 
       {/* Orders List */}
-      <main className="container mx-auto px-4 py-8">
-        <div className="mb-6">
+      <main className="container mx-auto px-3 md:px-4 py-4 md:py-8">
+        {/* Statistics - Mobile Optimized */}
+        <div className="mb-4 md:mb-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Statistics</CardTitle>
+            <CardHeader className="p-4 md:p-6">
+              <CardTitle className="text-base md:text-lg">Statistics</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-4 gap-4">
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-blue-600">
+            <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <p className="text-xl md:text-2xl font-bold text-blue-600">
                     {orders.filter(o => o.status === 'pending').length}
                   </p>
-                  <p className="text-sm text-gray-600">Pending</p>
+                  <p className="text-xs md:text-sm text-gray-600 mt-1">Pending</p>
                 </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-yellow-600">
+                <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                  <p className="text-xl md:text-2xl font-bold text-yellow-600">
                     {orders.filter(o => o.status === 'processing').length}
                   </p>
-                  <p className="text-sm text-gray-600">Processing</p>
+                  <p className="text-xs md:text-sm text-gray-600 mt-1">Processing</p>
                 </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-green-600">
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <p className="text-xl md:text-2xl font-bold text-green-600">
                     {orders.filter(o => o.status === 'ready').length}
                   </p>
-                  <p className="text-sm text-gray-600">Ready</p>
+                  <p className="text-xs md:text-sm text-gray-600 mt-1">Ready</p>
                 </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-gray-600">
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xl md:text-2xl font-bold text-gray-600">
                     {orders.filter(o => o.status === 'delivered').length}
                   </p>
-                  <p className="text-sm text-gray-600">Delivered</p>
+                  <p className="text-xs md:text-sm text-gray-600 mt-1">Delivered</p>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3 md:space-y-4">
           {currentOrders.length === 0 ? (
             <Card>
-              <CardContent className="p-12 text-center">
-                <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No orders yet</h3>
-                <p className="text-gray-600">Orders will appear here when customers place them</p>
+              <CardContent className="p-8 md:p-12 text-center">
+                <FileText className="h-12 w-12 md:h-16 md:w-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-base md:text-lg font-medium mb-2">No orders yet</h3>
+                <p className="text-sm md:text-base text-gray-600">Orders will appear here when customers place them</p>
               </CardContent>
             </Card>
           ) : (
@@ -379,80 +376,80 @@ const handlePreviewFile = async (fileUrl: string) => {
 
                 return (
                   <Card key={order.id} className="overflow-hidden">
-                    {/* Order Header */}
+                    {/* Order Header - Mobile Optimized */}
                     <div
-                      className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                      className="p-4 md:p-6 cursor-pointer hover:bg-gray-50 transition-colors"
                       onClick={() => toggleOrder(order.id)}
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-bold text-lg">{order.order_number}</h3>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
+                            <h3 className="font-bold text-sm md:text-lg truncate">{order.order_number}</h3>
                             {getStatusBadge(order.status)}
-                            <Badge variant="outline">
+                            <Badge variant="outline" className="text-xs">
                               {order.order_items.length} {order.order_items.length > 1 ? 'files' : 'file'}
                             </Badge>
                           </div>
-                          <p className="text-sm text-gray-600">{formatDate(order.created_at)}</p>
-                          <p className="text-xs text-gray-500 font-mono mt-1">
+                          <p className="text-xs md:text-sm text-gray-600">{formatDate(order.created_at)}</p>
+                          <p className="text-[10px] md:text-xs text-gray-500 font-mono mt-1 truncate">
                             User ID: {order.user_id.substring(0, 8)}...
                           </p>
-                          <p className="text-sm text-gray-700 mt-2">
-                            <strong>{order.order_items.length} files</strong> to print • <strong>{order.payment_method.toUpperCase()}</strong>
+                          <p className="text-xs md:text-sm text-gray-700 mt-2">
+                            <strong>{order.order_items.length} files</strong> • <strong>{order.payment_method.toUpperCase()}</strong>
                           </p>
                         </div>
-                        <div className="text-right flex items-start gap-4">
+                        <div className="text-right flex items-start gap-2 md:gap-4">
                           <div>
-                            <p className="text-2xl font-bold">{formatPrice(order.total_amount)}</p>
-                            <p className="text-xs text-gray-600">Delivery OTP: <span className="font-mono font-bold text-blue-600">{order.delivery_otp}</span></p>
+                            <p className="text-lg md:text-2xl font-bold whitespace-nowrap">{formatPrice(order.total_amount)}</p>
+                            <p className="text-[10px] md:text-xs text-gray-600 mt-1">
+                              OTP: <span className="font-mono font-bold text-blue-600">{order.delivery_otp}</span>
+                            </p>
                           </div>
                           {isExpanded ? (
-                            <ChevronUp className="h-6 w-6 text-gray-400" />
+                            <ChevronUp className="h-5 w-5 md:h-6 md:w-6 text-gray-400 flex-shrink-0" />
                           ) : (
-                            <ChevronDown className="h-6 w-6 text-gray-400" />
+                            <ChevronDown className="h-5 w-5 md:h-6 md:w-6 text-gray-400 flex-shrink-0" />
                           )}
                         </div>
                       </div>
                     </div>
 
-                    {/* Expanded Content */}
+                    {/* Expanded Content - Mobile Optimized */}
                     {isExpanded && (
                       <div className="border-t bg-gray-50">
-                        <CardContent className="p-6">
+                        <CardContent className="p-4 md:p-6">
                           <div className="mb-6">
-                            <h4 className="font-semibold text-sm text-gray-700 mb-3">
+                            <h4 className="font-semibold text-xs md:text-sm text-gray-700 mb-3">
                               Files to Print ({order.order_items.length}):
                             </h4>
                             <div className="space-y-3">
                               {order.order_items.map((item, idx) => (
                                 <div key={idx} className="bg-white rounded-lg border hover:border-blue-300 transition-colors overflow-hidden">
-                                  {/* File Header */}
-                                  <div className="flex items-center justify-between p-3">
-                                    <div className="flex items-center gap-3 flex-1">
-                                      <div className="bg-blue-100 p-2 rounded">
-                                        <FileText className="h-5 w-5 text-blue-600" />
+                                  {/* File Header - Mobile Optimized */}
+                                  <div className="p-3">
+                                    <div className="flex items-start gap-2 md:gap-3 mb-3">
+                                      <div className="bg-blue-100 p-2 rounded flex-shrink-0">
+                                        <FileText className="h-4 w-4 md:h-5 md:w-5 text-blue-600" />
                                       </div>
-                                      <div className="flex-1">
-                                        <p className="font-medium text-sm">{item.document_name}</p>
-                                        <p className="text-xs text-gray-500 mt-1">
-                                          {item.total_pages} pages • {item.copies} {item.copies > 1 ? 'copies' : 'copy'} • {item.color_mode} • {item.sides}
+                                      <div className="flex-1 min-w-0">
+                                        <p className="font-medium text-xs md:text-sm truncate">{item.document_name}</p>
+                                        <p className="text-[10px] md:text-xs text-gray-500 mt-1">
+                                          {item.total_pages}p • {item.copies}x • {item.color_mode} • {item.sides}
                                         </p>
                                       </div>
+                                      <span className="font-bold text-gray-900 text-sm md:text-lg whitespace-nowrap">{formatPrice(item.price)}</span>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                      <span className="font-bold text-gray-900 text-lg">{formatPrice(item.price)}</span>
-                                      <Button
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handlePreviewFile(item.document_url);
-                                        }}
-                                        className="bg-blue-600 hover:bg-blue-700"
-                                      >
-                                        <ExternalLink className="h-4 w-4 mr-1" />
-                                        Preview & Print
-                                      </Button>
-                                    </div>
+                                    <Button
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handlePreviewFile(item.document_url);
+                                      }}
+                                      className="w-full bg-blue-600 hover:bg-blue-700 text-xs md:text-sm h-8 md:h-9"
+                                    >
+                                      <ExternalLink className="h-3 w-3 md:h-4 md:w-4 mr-1" />
+                                      Preview & Print
+                                    </Button>
                                   </div>
 
                                   {/* Custom Page Details */}
@@ -461,16 +458,16 @@ const handlePreviewFile = async (fileUrl: string) => {
                                       <div className="flex items-start gap-2">
                                         <Palette className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
                                         <div className="flex-1">
-                                          <p className="text-sm font-medium text-amber-900 mb-2">⚠️ Custom Page Selection:</p>
-                                          <div className="space-y-1 text-xs">
+                                          <p className="text-xs md:text-sm font-medium text-amber-900 mb-2">⚠️ Custom Pages:</p>
+                                          <div className="space-y-1 text-[10px] md:text-xs">
                                             {item.custom_pages_config.colorPages && (
                                               <p className="text-amber-800">
-                                                <span className="font-semibold">Color Pages:</span> {item.custom_pages_config.colorPages}
+                                                <span className="font-semibold">Color:</span> {item.custom_pages_config.colorPages}
                                               </p>
                                             )}
                                             {item.custom_pages_config.bwPages && (
                                               <p className="text-amber-800">
-                                                <span className="font-semibold">B&W Pages:</span> {item.custom_pages_config.bwPages}
+                                                <span className="font-semibold">B&W:</span> {item.custom_pages_config.bwPages}
                                               </p>
                                             )}
                                           </div>
@@ -483,16 +480,16 @@ const handlePreviewFile = async (fileUrl: string) => {
                             </div>
                           </div>
 
-                          {/* Status Update */}
-                          <div className="flex items-center justify-between pt-4 border-t">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-gray-600 font-medium">Update Status:</span>
+                          {/* Status Update - Mobile Optimized */}
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-4 border-t">
+                            <div className="flex flex-col md:flex-row md:items-center gap-2">
+                              <span className="text-xs md:text-sm text-gray-600 font-medium">Update Status:</span>
                               <Select
                                 value={order.status}
                                 onValueChange={(value) => handleStatusUpdate(order.id, value)}
                                 disabled={updating === order.id}
                               >
-                                <SelectTrigger className="w-[180px]">
+                                <SelectTrigger className="w-full md:w-[180px] h-9 text-sm">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -505,9 +502,9 @@ const handlePreviewFile = async (fileUrl: string) => {
                             </div>
 
                             {updating === order.id && (
-                              <div className="text-sm text-blue-600 flex items-center gap-2">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Updating status...
+                              <div className="text-xs md:text-sm text-blue-600 flex items-center gap-2">
+                                <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" />
+                                Updating...
                               </div>
                             )}
                           </div>
@@ -518,35 +515,37 @@ const handlePreviewFile = async (fileUrl: string) => {
                 );
               })}
 
-              {/* Pagination */}
+              {/* Pagination - Mobile Optimized */}
               {totalPages > 1 && (
                 <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-gray-600">
+                  <CardContent className="p-3 md:p-4">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <p className="text-xs md:text-sm text-gray-600 text-center md:text-left">
                         Showing {startIndex + 1}-{Math.min(endIndex, orders.length)} of {orders.length} orders
                       </p>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-center gap-2">
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={goToPrevPage}
                           disabled={currentPage === 1}
+                          className="h-8 md:h-9"
                         >
-                          <ChevronLeft className="h-4 w-4" />
-                          Previous
+                          <ChevronLeft className="h-3 w-3 md:h-4 md:w-4" />
+                          <span className="hidden md:inline">Previous</span>
                         </Button>
-                        <span className="text-sm font-medium px-4">
-                          Page {currentPage} of {totalPages}
+                        <span className="text-xs md:text-sm font-medium px-2 md:px-4">
+                          {currentPage}/{totalPages}
                         </span>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={goToNextPage}
                           disabled={currentPage === totalPages}
+                          className="h-8 md:h-9"
                         >
-                          Next
-                          <ChevronRight className="h-4 w-4" />
+                          <span className="hidden md:inline">Next</span>
+                          <ChevronRight className="h-3 w-3 md:h-4 md:w-4" />
                         </Button>
                       </div>
                     </div>
