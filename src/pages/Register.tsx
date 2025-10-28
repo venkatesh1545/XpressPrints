@@ -2,6 +2,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import AuthForm from '@/components/auth/AuthForm';
 import { signUp } from '@/lib/auth';
+import { Printer } from 'lucide-react';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -25,6 +26,14 @@ export default function Register() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="w-full max-w-md">
+        {/* Logo/Brand */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-4">
+            <Printer className="h-8 w-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900">Xpress Prints</h1>
+          {/* <p className="text-gray-600 mt-2">Welcome back! Sign in to continue</p> */}
+        </div>
         <AuthForm mode="register" onSubmit={handleRegister} />
         
         <p className="text-center text-sm text-gray-600 mt-4">
