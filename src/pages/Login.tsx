@@ -1,20 +1,57 @@
 import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
+import { useState } from 'react';
 import AuthForm from '@/components/auth/AuthForm';
-import { signIn } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { Printer } from 'lucide-react';
 
 export default function Login() {
   const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async (data: { email: string; password: string }) => {
+    setIsLoading(true);
+    
     try {
-      await signIn(data.email, data.password);
-      toast.success('Welcome back!');
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password
+      });
+
+      if (error) throw error;
+
+      if (authData.user) {
+        // Check if account was scheduled for deletion
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('deletion_scheduled_at')
+          .eq('id', authData.user.id)
+          .single();
+
+        if (!profileError && profile?.deletion_scheduled_at) {
+          // Restore account by clearing deletion flags
+          const { error: restoreError } = await supabase
+            .from('profiles')
+            .update({
+              deletion_scheduled_at: null,
+              deleted_at: null
+            })
+            .eq('id', authData.user.id);
+
+          if (!restoreError) {
+            toast.success('Welcome back! Your account has been restored.');
+          }
+        } else {
+          toast.success('Welcome back!');
+        }
+      }
+
       navigate('/dashboard');
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to sign in';
-      throw new Error(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
 

@@ -2,10 +2,11 @@ export interface User {
   id: string;
   email: string;
   full_name: string;
-  phone_number?: string;
+  phone?: string; 
   role: 'customer' | 'owner';
   created_at: string;
 }
+
 
 export interface Address {
   id: string;

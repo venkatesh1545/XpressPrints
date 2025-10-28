@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,9 +16,28 @@ import {
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import MobileNav from '@/components/layout/MobileNav';
+import { supabase } from '@/lib/supabase';
 
 export default function Index() {
   const navigate = useNavigate();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    setIsAuthenticated(!!session);
+  };
+
+  const handleStartPrinting = () => {
+    if (isAuthenticated) {
+      navigate('/upload');
+    } else {
+      navigate('/login');
+    }
+  };
 
   const features = [
     {
@@ -70,34 +90,32 @@ export default function Index() {
   ];
 
   const pricing = [
-        { 
-            type: 'Black & White (1-39 pages)', 
-            single: '₹2', 
-            double: '₹3' 
-        },
-        { 
-            type: 'Black & White (40+ pages)', 
-            single: '₹1.5', 
-            double: '₹2.5' 
-        },
-        { 
-            type: 'Color Print', 
-            single: '₹10', 
-            double: '₹15' 
-        },
-        { 
-            type: 'Spiral Binding', 
-            single: '₹30', 
-            double: '-' 
-        },
-        { 
-            type: 'Record Binding', 
-            single: '₹40', 
-            double: '-' 
-        }
-    ];
-
-
+    { 
+      type: 'Black & White (1-39 pages)', 
+      single: '₹2', 
+      double: '₹3' 
+    },
+    { 
+      type: 'Black & White (40+ pages)', 
+      single: '₹1.5', 
+      double: '₹2.5' 
+    },
+    { 
+      type: 'Color Print', 
+      single: '₹10', 
+      double: '₹15' 
+    },
+    { 
+      type: 'Spiral Binding', 
+      single: '₹30', 
+      double: '-' 
+    },
+    { 
+      type: 'Record Binding', 
+      single: '₹40', 
+      double: '-' 
+    }
+  ];
 
   return (
     <div className="min-h-screen bg-white">
@@ -124,19 +142,21 @@ export default function Index() {
               <Button 
                 size="lg" 
                 className="text-lg px-8 py-6"
-                onClick={() => navigate('/upload')}
+                onClick={handleStartPrinting}
               >
                 <Upload className="mr-2 h-5 w-5" />
                 Start Printing Now
               </Button>
-              <Button 
-                variant="outline" 
-                size="lg" 
-                className="text-lg px-8 py-6"
-                onClick={() => navigate('/register')}
-              >
-                Create Account
-              </Button>
+              {!isAuthenticated && (
+                <Button 
+                  variant="outline" 
+                  size="lg" 
+                  className="text-lg px-8 py-6"
+                  onClick={() => navigate('/register')}
+                >
+                  Create Account
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -147,7 +167,7 @@ export default function Index() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Why Choose PrintXpress?
+              Why Choose Xpress Prints?
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
               Experience the future of printing services with our modern, 
@@ -241,7 +261,7 @@ export default function Index() {
               <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                 <p className="text-sm text-blue-800 text-center">
                   <Star className="inline h-4 w-4 mr-1" />
-                  Free delivery within 1 hours • Minimum order: ₹5
+                  Free delivery within 2 hours • Minimum order: ₹5
                 </p>
               </div>
             </CardContent>
@@ -257,14 +277,14 @@ export default function Index() {
               Ready to Print?
             </h2>
             <p className="text-xl text-blue-100 mb-8">
-              Join thousands of students and professionals who trust PrintXpress 
+              Join thousands of students and professionals who trust Xpress Prints 
               for their printing needs.
             </p>
             <Button 
               size="lg" 
               variant="secondary"
               className="text-lg px-8 py-6 bg-white text-blue-600 hover:bg-gray-100"
-              onClick={() => navigate('/upload')}
+              onClick={handleStartPrinting}
             >
               <FileText className="mr-2 h-5 w-5" />
               Upload Your Documents

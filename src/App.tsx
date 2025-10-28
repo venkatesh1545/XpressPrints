@@ -12,6 +12,7 @@ import Cart from './pages/Cart';
 import Orders from './pages/Orders';
 import OrderConfirmation from './pages/OrderConfirmation';
 import NotFound from './pages/NotFound';
+import Profile from '@/pages/Profile';
 import PaymentStatus from './pages/PaymentStatus';
 import MyOrders from './pages/MyOrders';
 import AdminLogin from './pages/AdminLogin';
@@ -37,6 +38,7 @@ const App = () => (
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="/upload" element={<Upload />} />
           <Route path="/customize" element={<Customize />} />
           <Route path="/cart" element={<Cart />} />
