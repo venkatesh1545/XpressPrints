@@ -154,43 +154,75 @@ export default function Profile() {
   };
 
   const handleDeleteAccount = async () => {
-        if (deleteConfirmation !== 'delete account') {
-            toast.error('Please type "delete account" exactly');
-            return;
+    if (deleteConfirmation !== 'delete account') {
+        toast.error('Please type "delete account" exactly');
+        return;
+    }
+
+    try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        
+        if (!authUser) {
+        throw new Error('Not authenticated');
         }
+
+        // Mark account for deletion (soft delete)
+        const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+            deletion_scheduled_at: new Date().toISOString(),
+            deleted_at: new Date().toISOString()
+        })
+        .eq('id', authUser.id);
+
+        if (profileError) throw profileError;
+
+        // Send deletion confirmation email via Edge Function
+        const scheduledDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleString('en-IN', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+        timeZone: 'Asia/Kolkata'
+        });
 
         try {
-            const { data: { user: authUser } } = await supabase.auth.getUser();
-            
-            if (!authUser) {
-            throw new Error('Not authenticated');
-            }
-
-            // Mark account for deletion (soft delete)
-            const { error: profileError } = await supabase
-            .from('profiles')
-            .update({
-                deletion_scheduled_at: new Date().toISOString(),
-                deleted_at: new Date().toISOString()
+        const emailResponse = await fetch(
+            'https://aexllphtbsarrupxhjhg.supabase.co/functions/v1/send-deletion-email',
+            {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+            },
+            body: JSON.stringify({
+                email: authUser.email,
+                name: authUser.user_metadata?.full_name || 'User',
+                scheduledDate: scheduledDate
             })
-            .eq('id', authUser.id);
+            }
+        );
 
-            if (profileError) throw profileError;
-
-            // Sign out the user
-            await supabase.auth.signOut();
-            
-            toast.success('Account scheduled for deletion');
-            toast.info('Your account will be permanently deleted in 2 days. Sign in within 2 days to restore it.');
-            
-            navigate('/');
-        } catch (error) {
-            console.error('Delete error:', error);
-            toast.error('Failed to process request');
-        } finally {
-            setShowDeleteDialog(false);
-            setDeleteConfirmation('');
+        if (!emailResponse.ok) {
+            console.error('Failed to send deletion email');
         }
+        } catch (emailError) {
+        console.error('Email error:', emailError);
+        // Don't block deletion if email fails
+        }
+
+        // Sign out the user
+        await supabase.auth.signOut();
+        
+        toast.success('Account deletion confirmed');
+        toast.info('Check your email for details. Sign in within 2 days to restore your account.');
+        
+        navigate('/');
+    } catch (error) {
+        console.error('Delete error:', error);
+        toast.error('Failed to process request');
+    } finally {
+        setShowDeleteDialog(false);
+        setDeleteConfirmation('');
+    }
     };
 
 
