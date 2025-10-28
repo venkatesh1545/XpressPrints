@@ -24,7 +24,7 @@ const parsePageNumbers = (input: string, maxPages: number): number[] => {
   const parts = input.split(',').map(p => p.trim());
   
   for (const part of parts) {
-    if (part === '0') continue; // Skip if user enters 0
+    if (part === '0') continue;
     
     if (part.includes('-')) {
       const [start, end] = part.split('-').map(Number);
@@ -44,43 +44,50 @@ const parsePageNumbers = (input: string, maxPages: number): number[] => {
   return Array.from(pages);
 };
 
+// ✅ FIXED: Calculate price per item, then multiply by copies
 export const calculateItemPrice = (item: CartItem): number => {
-  let price = 0;
+  let pricePerCopy = 0;
   
-  const sides = item.sides;
+  // ✅ Type assertion to ensure sides is correct type
+  const sides = item.sides as 'single' | 'double';
   
   if (item.color_mode === 'bw') {
-    const totalPages = item.total_pages * item.copies;
-    const pricePerPage = getBlackAndWhitePrice(totalPages, sides);
-    price = totalPages * pricePerPage;
+    // ✅ FIXED: Calculate price for ONE copy, then multiply
+    const pricePerPage = getBlackAndWhitePrice(item.total_pages, sides);
+    pricePerCopy = item.total_pages * pricePerPage;
     
   } else if (item.color_mode === 'color') {
-    const totalPages = item.total_pages * item.copies;
+    // ✅ FIXED: Calculate price for ONE copy, then multiply
     const colorPrice = sides === 'single' ? PRICING.color.single : PRICING.color.double;
-    price = totalPages * colorPrice;
+    pricePerCopy = item.total_pages * colorPrice;
     
   } else if (item.color_mode === 'custom' && item.custom_pages_config) {
     const bwPages = parsePageNumbers(item.custom_pages_config.bwPages || '', item.total_pages);
     const colorPages = parsePageNumbers(item.custom_pages_config.colorPages || '', item.total_pages);
     
-    const bwCount = bwPages.length * item.copies;
-    const colorCount = colorPages.length * item.copies;
+    // ✅ FIXED: Don't multiply by copies here
+    const bwCount = bwPages.length;
+    const colorCount = colorPages.length;
     
     const bwPrice = getBlackAndWhitePrice(bwCount, sides);
     const colorPrice = sides === 'single' ? PRICING.color.single : PRICING.color.double;
     
-    price = (bwCount * bwPrice) + (colorCount * colorPrice);
+    pricePerCopy = (bwCount * bwPrice) + (colorCount * colorPrice);
   }
   
+  // ✅ Calculate total price = price per copy × number of copies
+  let totalPrice = pricePerCopy * item.copies;
+  
+  // ✅ Add binding costs (these don't multiply by copies)
   if (item.spiral_binding && item.spiral_binding > 0) {
-    price += item.spiral_binding * PRICING.spiralBinding;
+    totalPrice += item.spiral_binding * PRICING.spiralBinding;
   }
   
   if (item.record_binding && item.record_binding > 0) {
-    price += item.record_binding * PRICING.recordBinding;
+    totalPrice += item.record_binding * PRICING.recordBinding;
   }
   
-  return Math.round(price * 100) / 100;
+  return Math.round(totalPrice * 100) / 100;
 };
 
 export const calculateCartTotal = (items: CartItem[]): number => {
