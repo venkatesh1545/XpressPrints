@@ -13,6 +13,8 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { formatPrice } from '@/lib/pricing';
+import { IndianRupee } from 'lucide-react';
+
 import { 
   FileText, 
   Clock, 
@@ -300,26 +302,37 @@ export default function AdminOrders() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Admin Header - Mobile Optimized */}
-      <div className="bg-white border-b sticky top-0 z-50">
-        <div className="container mx-auto px-3 md:px-4 py-3 md:py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg md:text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-              <p className="text-xs md:text-sm text-gray-600">Manage all orders</p>
-            </div>
-            <div className="flex items-center gap-1 md:gap-2">
-              <Button onClick={loadOrders} variant="outline" size="sm" className="h-8 md:h-9">
-                <RefreshCw className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
-                <span className="hidden md:inline">Refresh</span>
-              </Button>
-              <Button onClick={handleLogout} variant="outline" size="sm" className="h-8 md:h-9">
-                <LogOut className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
-                <span className="hidden md:inline">Logout</span>
-              </Button>
-            </div>
-          </div>
-        </div>
+      {/* Admin Header - Mobile Optimized */}
+<div className="bg-white border-b sticky top-0 z-50">
+  <div className="container mx-auto px-3 md:px-4 py-3 md:py-4">
+    <div className="flex items-center justify-between">
+      <div>
+        <h1 className="text-lg md:text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+        <p className="text-xs md:text-sm text-gray-600">Manage all orders</p>
       </div>
+      <div className="flex items-center gap-1 md:gap-2">
+        <Button 
+          onClick={() => navigate('/admin/earnings')}
+          variant="outline" 
+          size="sm" 
+          className="h-8 md:h-9"
+        >
+          <IndianRupee className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
+          <span className="hidden md:inline">Earnings</span>
+        </Button>
+        <Button onClick={loadOrders} variant="outline" size="sm" className="h-8 md:h-9">
+          <RefreshCw className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
+          <span className="hidden md:inline">Refresh</span>
+        </Button>
+        <Button onClick={handleLogout} variant="outline" size="sm" className="h-8 md:h-9">
+          <LogOut className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
+          <span className="hidden md:inline">Logout</span>
+        </Button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
       {/* Orders List */}
       <main className="container mx-auto px-3 md:px-4 py-4 md:py-8">

@@ -24,6 +24,7 @@ import RefundPolicy from './pages/RefundPolicy';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import ShippingPolicy from './pages/ShippingPolicy';
 import ContactUs from './pages/ContactUs';
+import AdminEarnings from './pages/AdminEarnings';
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -49,6 +50,7 @@ const App = () => (
           <Route path="/my-orders" element={<MyOrders />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin/orders" element={<AdminOrders />} />
+          <Route path="/admin/earnings" element={<AdminEarnings />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/refund-policy" element={<RefundPolicy />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
