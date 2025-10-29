@@ -151,6 +151,12 @@ export default function Upload() {
             <p className="text-gray-600">
               Upload PDF, DOCX, or image files to get started
             </p>
+            {/* ✅ Add helpful info box */}
+            <div className="mt-4 inline-block bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+              <p className="text-sm text-blue-800">
+                📁 Upload up to <strong>5 files</strong> at once (50MB max per file)
+              </p>
+            </div>
           </div>
 
           {uploadedFiles.length > 0 && (
