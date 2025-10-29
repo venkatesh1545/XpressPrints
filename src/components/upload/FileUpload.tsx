@@ -9,6 +9,9 @@ import * as pdfjsLib from 'pdfjs-dist';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
+const MAX_FILES = 5;
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
 interface FileUploadProps {
   onFilesUploaded: (files: UploadedFile[]) => void;
   uploadedFiles: UploadedFile[];
@@ -48,7 +51,6 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
         file.type === 'application/msword'
       ) {
         console.log(`[DOCX Detection] Manual entry required for ${file.name}`);
-        // Return 0 to indicate manual input needed (orange status)
         return { pages: 0, estimated: true };
       } 
       
@@ -58,7 +60,6 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
         return { pages: 1, estimated: false };
       }
       
-      // Unsupported file type
       throw new Error('File type not supported. Please upload PDF, DOCX/DOC, or image files (PNG/JPG).');
       
     } catch (error) {
@@ -111,8 +112,20 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (uploadedFiles.length + acceptedFiles.length > 5) {
-      toast.error('Maximum 5 files allowed');
+    // ✅ Check file count limit
+    const currentCount = uploadedFiles.length;
+    const newCount = acceptedFiles.length;
+    const totalCount = currentCount + newCount;
+
+    if (totalCount > MAX_FILES) {
+      toast.error(`You can only upload up to ${MAX_FILES} files. You currently have ${currentCount} file${currentCount !== 1 ? 's' : ''}.`);
+      return;
+    }
+
+    // ✅ Validate file sizes
+    const oversizedFiles = acceptedFiles.filter(file => file.size > MAX_FILE_SIZE);
+    if (oversizedFiles.length > 0) {
+      toast.error(`Some files exceed 50MB: ${oversizedFiles.map(f => f.name).join(', ')}`);
       return;
     }
 
@@ -126,6 +139,11 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
 
     setIsUploading(true);
 
+    // ✅ Show progress toast
+    if (acceptedFiles.length > 1) {
+      toast.info(`Uploading ${acceptedFiles.length} files...`);
+    }
+
     // Initialize files with uploading status
     const newFiles: UploadedFile[] = acceptedFiles.map(file => ({
       id: `${Date.now()}-${file.name}-${Math.random()}`,
@@ -138,34 +156,18 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
     const currentFiles = [...uploadedFiles, ...newFiles];
     onFilesUploaded(currentFiles);
 
-    // Upload files one by one
-    for (let i = 0; i < acceptedFiles.length; i++) {
-      const file = acceptedFiles[i];
-      const fileId = newFiles[i].id;
-
+    // ✅ Upload files in parallel for faster performance
+    const uploadPromises = acceptedFiles.map(async (file, index) => {
+      const fileId = newFiles[index].id;
+      
       try {
-        // Validate file size (50MB max)
-        if (file.size > 50 * 1024 * 1024) {
+        // Validate file size
+        if (file.size > MAX_FILE_SIZE) {
           throw new Error('File size exceeds 50MB');
         }
 
         // Upload file
         const { url, pages, estimated } = await uploadToSupabase(file);
-
-        // Update file status
-        const updatedFiles = currentFiles.map(f => 
-          f.id === fileId 
-            ? { 
-                ...f, 
-                url, 
-                pages, // Will be 0 for DOCX files
-                estimated,
-                estimatedPages: pages, // Store original value
-                status: 'success' as const 
-              }
-            : f
-        );
-        onFilesUploaded(updatedFiles);
 
         if (estimated) {
           toast.warning(
@@ -175,23 +177,51 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
         } else {
           toast.success(`${file.name} uploaded (${pages} ${pages === 1 ? 'page' : 'pages'})`);
         }
-        
+
+        return {
+          ...newFiles[index],
+          url, 
+          pages,
+          estimated,
+          estimatedPages: pages,
+          status: 'success' as const 
+        };
+
       } catch (error) {
-        console.error('[Upload] Error:', error);
+        console.error(`[Upload] Error for ${file.name}:`, error);
         const errorMessage = error instanceof Error ? error.message : 'Upload failed';
         
-        const updatedFiles = currentFiles.map(f => 
-          f.id === fileId 
-            ? { ...f, status: 'error' as const, error: errorMessage }
-            : f
-        );
-        onFilesUploaded(updatedFiles);
-
         toast.error(`${file.name}: ${errorMessage}`);
+
+        return {
+          ...newFiles[index],
+          status: 'error' as const,
+          error: errorMessage
+        };
+      }
+    });
+
+    // Wait for all uploads to complete
+    const uploadResults = await Promise.all(uploadPromises);
+
+    // Update state with final results
+    const finalFiles = [...uploadedFiles, ...uploadResults];
+    onFilesUploaded(finalFiles);
+
+    setIsUploading(false);
+
+    // ✅ Show summary for multiple files
+    if (acceptedFiles.length > 1) {
+      const successCount = uploadResults.filter(f => f.status === 'success').length;
+      const errorCount = uploadResults.filter(f => f.status === 'error').length;
+
+      if (successCount > 0 && errorCount === 0) {
+        toast.success(`All ${successCount} files uploaded successfully!`);
+      } else if (successCount > 0 && errorCount > 0) {
+        toast.info(`${successCount} succeeded, ${errorCount} failed`);
       }
     }
 
-    setIsUploading(false);
   }, [uploadedFiles, onFilesUploaded]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -205,8 +235,9 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
       'image/gif': ['.gif'],
       'image/webp': ['.webp']
     },
-    maxFiles: 5,
-    disabled: isUploading || uploadedFiles.length >= 5,
+    multiple: true, // ✅ Enable multiple file selection
+    maxFiles: MAX_FILES,
+    disabled: isUploading || uploadedFiles.length >= MAX_FILES,
     onDropRejected: (fileRejections) => {
       fileRejections.forEach((rejection) => {
         if (rejection.errors[0]?.code === 'file-invalid-type') {
@@ -214,6 +245,8 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
             `${rejection.file.name}: File type not supported. Please upload PDF, DOCX/DOC, or image files (PNG/JPG).`,
             { duration: 5000 }
           );
+        } else if (rejection.errors[0]?.code === 'too-many-files') {
+          toast.error(`You can only upload up to ${MAX_FILES} files at once.`);
         }
       });
     }
@@ -228,7 +261,7 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
             isDragActive
               ? 'border-blue-500 bg-blue-50'
               : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-          } ${isUploading || uploadedFiles.length >= 5 ? 'opacity-50 cursor-not-allowed' : ''}`}
+          } ${isUploading || uploadedFiles.length >= MAX_FILES ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           <input {...getInputProps()} />
           
@@ -237,10 +270,11 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
               <div className="h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="text-gray-600">Uploading and processing...</p>
             </div>
-          ) : uploadedFiles.length >= 5 ? (
+          ) : uploadedFiles.length >= MAX_FILES ? (
             <div className="space-y-4">
               <FileText className="h-12 w-12 text-gray-400 mx-auto" />
-              <p className="text-gray-600">Maximum 5 files reached</p>
+              <p className="text-gray-600">Maximum {MAX_FILES} files reached</p>
+              <p className="text-xs text-gray-500">Remove files to upload more</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -250,15 +284,18 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
                   {isDragActive ? 'Drop files here' : 'Drag & drop files here'}
                 </p>
                 <p className="text-sm text-gray-600 mt-1">
-                  PDF, DOCX, DOC, PNG, JPG (max 50MB)
+                  or click to browse
                 </p>
               </div>
-              <p className="text-xs text-gray-500">
-                {uploadedFiles.length > 0 
-                  ? `${uploadedFiles.length}/5 files uploaded`
-                  : 'Upload up to 5 files'
-                }
-              </p>
+              <div className="text-xs text-gray-500 space-y-1">
+                <p>PDF, DOCX, DOC, PNG, JPG (max 50MB each)</p>
+                <p className="font-medium text-blue-600">
+                  {uploadedFiles.length > 0 
+                    ? `${uploadedFiles.length}/${MAX_FILES} files uploaded - ${MAX_FILES - uploadedFiles.length} remaining`
+                    : `Upload up to ${MAX_FILES} files at once`
+                  }
+                </p>
+              </div>
             </div>
           )}
         </div>
