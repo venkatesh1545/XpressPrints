@@ -151,7 +151,7 @@ export default function Cart() {
           {/* Mobile Header */}
           <div className="flex items-center justify-between mb-4 md:mb-6">
             <button 
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/dashboard')}
               className="md:hidden flex items-center text-blue-600"
             >
               <ArrowLeft className="h-5 w-5" />
@@ -216,43 +216,47 @@ export default function Cart() {
                   <CardContent className="p-3 md:p-4">
                     {/* Mobile Layout */}
                     <div className="md:hidden space-y-3">
-                      {/* Top Row: Checkbox, Icon, Title, Price */}
+                      {/* Top Row: Checkbox, Icon, Title Section, Price */}
                       <div className="flex items-start gap-2">
                         <Checkbox
                           id={`item-${item.id}`}
                           checked={selectedItems.has(item.id)}
                           onCheckedChange={(checked) => handleSelectItem(item.id, !!checked)}
-                          className="mt-1"
+                          className="mt-1 flex-shrink-0"
                         />
                         
                         <div className="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                           <FileText className="w-5 h-5 text-blue-600" />
                         </div>
                         
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-medium text-sm text-gray-900 truncate">
-                            {item.document_name}
-                          </h3>
-                          <p className="text-xs text-gray-600 mt-0.5">
-                            {item.total_pages} pages • {item.paper_size}
-                          </p>
-                        </div>
-                        
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-gray-900">
-                            {formatPrice(calculateItemPrice(item))}
-                          </p>
-
+                        {/* ✅ FIXED: Title and Price Container with proper width constraints */}
+                        <div className="flex-1 min-w-0 flex items-start justify-between gap-2">
+                          {/* ✅ Title with word wrap - takes available space */}
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium text-sm text-gray-900 break-words line-clamp-2">
+                              {item.document_name}
+                            </h3>
+                            <p className="text-xs text-gray-600 mt-0.5 whitespace-nowrap">
+                              {item.total_pages} pages • {item.paper_size}
+                            </p>
+                          </div>
+                          
+                          {/* ✅ Price - fixed width, aligned right */}
+                          <div className="flex-shrink-0 text-right">
+                            <p className="text-base font-bold text-gray-900 whitespace-nowrap">
+                              {formatPrice(calculateItemPrice(item))}
+                            </p>
+                          </div>
                         </div>
                       </div>
 
                       {/* Options Tags */}
                       <div className="flex flex-wrap gap-1.5 ml-12">
-                        <span className="px-2 py-0.5 bg-gray-100 rounded text-[10px] text-gray-600">
+                        <span className="px-2 py-0.5 bg-gray-100 rounded text-[10px] text-gray-600 whitespace-nowrap">
                           {item.color_mode === 'bw' ? 'Black & White' : 
-                           item.color_mode === 'color' ? 'Color' : 'Custom'}
+                          item.color_mode === 'color' ? 'Color' : 'Custom'}
                         </span>
-                        <span className="px-2 py-0.5 bg-gray-100 rounded text-[10px] text-gray-600">
+                        <span className="px-2 py-0.5 bg-gray-100 rounded text-[10px] text-gray-600 whitespace-nowrap">
                           {item.sides === 'single' ? 'Single Side' : 'Both Sides'}
                         </span>
                       </div>
@@ -260,12 +264,12 @@ export default function Cart() {
                       {/* Bottom Row: Copies & Actions */}
                       <div className="flex items-center justify-between ml-12">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-600">Copies:</span>
+                          <span className="text-xs text-gray-600 whitespace-nowrap">Copies:</span>
                           <div className="flex items-center gap-1">
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-6 w-6 p-0"
+                              className="h-6 w-6 p-0 flex-shrink-0"
                               onClick={() => updateQuantity(item.id, -1)}
                               disabled={item.copies <= 1}
                             >
@@ -275,7 +279,7 @@ export default function Cart() {
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-6 w-6 p-0"
+                              className="h-6 w-6 p-0 flex-shrink-0"
                               onClick={() => updateQuantity(item.id, 1)}
                             >
                               +
@@ -283,7 +287,7 @@ export default function Cart() {
                           </div>
                         </div>
 
-                        <div className="flex gap-1">
+                        <div className="flex gap-1 flex-shrink-0">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -303,6 +307,7 @@ export default function Cart() {
                         </div>
                       </div>
                     </div>
+
 
                     {/* Desktop Layout */}
                     <div className="hidden md:flex items-start space-x-3">
