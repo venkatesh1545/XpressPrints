@@ -88,42 +88,45 @@ export default function OrderConfirmation() {
   const totalAmount = subtotal + convenienceFee;
 
   // ✅ Send email notifications to admin and customer
-  const sendNotifications = async (
-    orderNumber: string,
-    totalAmount: number,
-    items: CartItem[],
-    userEmail: string,
-    userName: string
-  ) => {
-    try {
-      console.log('[Notification] Sending emails...');
-      
-      const { error } = await supabase.functions.invoke('send-order-notifications', {
-        body: {
-          orderNumber,
-          totalAmount,
-          items: items.map(item => ({
-            document_name: item.document_name,
-            total_pages: item.total_pages,
-            copies: item.copies,
-            color_mode: item.color_mode || 'black & white'
-          })),
-          userEmail,
-          userName
+    const sendNotifications = async (
+      orderNumber: string,
+      totalAmount: number,
+      items: CartItem[],
+      userEmail: string,
+      userName: string
+    ) => {
+      try {
+        console.log('[Notification] Sending emails to:', userEmail);
+        console.log('[Notification] Order:', orderNumber);
+        
+        const { data, error } = await supabase.functions.invoke('send-order-notifications', {
+          body: {
+            orderNumber,
+            totalAmount,
+            items: items.map(item => ({
+              document_name: item.document_name,
+              total_pages: item.total_pages,
+              copies: item.copies,
+              color_mode: item.color_mode || 'black & white'
+            })),
+            userEmail, // ✅ This should be the customer's email
+            userName
+          }
+        });
+        
+        if (error) {
+          console.error('[Notification] Error:', error);
+          toast.warning('Order placed but email notification failed');
+        } else {
+          console.log('[Notification] Response:', data);
+          toast.success('Order placed! Check your email for confirmation');
         }
-      });
-      
-      if (error) {
-        console.error('[Notification] Error:', error);
-        // Don't show error to user, just log it
-      } else {
-        console.log('[Notification] Emails sent successfully');
+      } catch (error) {
+        console.error('[Notification] Failed:', error);
+        // Don't fail the order if notification fails
       }
-    } catch (error) {
-      console.error('[Notification] Failed:', error);
-      // Don't fail the order if notification fails
-    }
-  };
+    };
+
 
   const handleRazorpayPayment = async () => {
       setIsProcessing(true);
@@ -266,20 +269,20 @@ export default function OrderConfirmation() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      if (!user) {
+      if (!user || !user.email) {
         toast.error('Please sign in to continue');
         navigate('/login');
         return;
       }
 
-      console.log('[COD] Creating order...');
+      console.log('[COD] User email:', user.email); // ✅ Debug log
 
       const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
       const orderNumber = `ORD-${Date.now()}`;
 
       const orderData = {
         user_id: user.id,
-        user_email: user.email, // ✅ Add this line
+        user_email: user.email, // ✅ Make sure this is set
         order_number: orderNumber,
         total_amount: totalAmount,
         payment_method: 'cod',
@@ -298,11 +301,9 @@ export default function OrderConfirmation() {
           paper_size: item.paper_size,
           spiral_binding: item.spiral_binding || 0,
           record_binding: item.record_binding || 0,
-          custom_pages_config: item.custom_pages_config // ✅ Include custom pages
+          custom_pages_config: item.custom_pages_config
         }))
       };
-
-      console.log('[COD] Order data:', orderData);
 
       // Insert into Supabase
       const { data: orderResult, error: orderError } = await supabase
@@ -318,13 +319,15 @@ export default function OrderConfirmation() {
 
       console.log('[COD] Order created successfully!');
       
-      // ✅ Send email notifications (don't await, let it run in background)
-      sendNotifications(
+      // ✅ FIXED: Send notifications with proper email
+      console.log('[COD] Sending notifications to:', user.email);
+      
+      await sendNotifications(
         orderNumber,
         totalAmount,
         cartItems,
-        user.email || 'Unknown',
-        user.user_metadata?.full_name || 'Valued Customer'
+        user.email, // ✅ Ensure this is the actual email
+        user.user_metadata?.full_name || user.email?.split('@')[0] || 'Valued Customer'
       );
       
       // Store order details for success modal
@@ -349,6 +352,7 @@ export default function OrderConfirmation() {
       setIsProcessing(false);
     }
   };
+
 
   const handleBackToDashboard = () => {
     setShowSuccessModal(false);
@@ -514,36 +518,43 @@ export default function OrderConfirmation() {
               </div>
             </div>
             <DialogTitle className="text-center text-2xl">Order Placed Successfully!</DialogTitle>
-            <DialogDescription className="text-center space-y-3 pt-4">
-              <p className="text-base">
-                Your order has been confirmed and will be delivered within 12-24 hours.
-              </p>
-              
-              {orderDetails && (
-                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                  <div className="text-sm">
-                    <span className="text-gray-600">Order Number: </span>
-                    <span className="font-bold text-gray-900">{orderDetails.orderNumber}</span>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-gray-600">Delivery OTP: </span>
-                    <span className="font-mono font-bold text-blue-600 text-lg">{orderDetails.deliveryOtp}</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    💡 Save this OTP to receive your delivery
-                  </p>
+          </DialogHeader>
+          
+          <div className="text-center space-y-4 pt-2">
+            <p className="text-base text-gray-600">
+              Your order has been confirmed and will be delivered within 12-24 hours.
+            </p>
+            
+            {orderDetails && (
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                <div className="text-sm">
+                  <span className="text-gray-600">Order Number: </span>
+                  <span className="font-bold text-gray-900">{orderDetails.orderNumber}</span>
                 </div>
-              )}
+                <div className="text-sm">
+                  <span className="text-gray-600">Delivery OTP: </span>
+                  <span className="font-mono font-bold text-blue-600 text-lg">{orderDetails.deliveryOtp}</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  💡 Save this OTP to receive your delivery
+                </p>
+              </div>
+            )}
 
-              <p className="text-sm text-gray-600">
+            {/* ✅ Added highlighted email notification message */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800 font-medium">
                 📧 Confirmation emails have been sent to you and our admin.
               </p>
-
-              <p className="text-sm text-gray-600">
-                You can track your order status in the <strong>"My Orders"</strong> section.
+              <p className="text-xs text-blue-600 mt-1">
+                Please check your <strong>inbox or spam folder</strong> for order confirmation.
               </p>
-            </DialogDescription>
-          </DialogHeader>
+            </div>
+
+            <p className="text-sm text-gray-600">
+              You can track your order status in the <strong>"My Orders"</strong> section.
+            </p>
+          </div>
           
           <div className="flex flex-col gap-3 mt-4">
             <Button
@@ -563,6 +574,7 @@ export default function OrderConfirmation() {
           </div>
         </DialogContent>
       </Dialog>
+
     </>
   );
 }
