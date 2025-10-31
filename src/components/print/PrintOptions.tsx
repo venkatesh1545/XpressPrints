@@ -178,7 +178,7 @@ export default function PrintOptions({ fileName, totalPages, initialOptions, onO
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Number of Copies */}
-          <div>
+          {/* <div>
             <Label className="text-base font-medium">Number of Copies</Label>
             <div className="flex items-center space-x-3 mt-2">
               <Button
@@ -204,7 +204,7 @@ export default function PrintOptions({ fileName, totalPages, initialOptions, onO
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
-          </div>
+          </div> */}
 
           {/* Color Options */}
           <div>
