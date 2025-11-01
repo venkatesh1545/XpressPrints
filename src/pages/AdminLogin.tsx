@@ -13,9 +13,9 @@ export default function AdminLogin() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Admin credentials (In production, store in environment variables)
-  const ADMIN_USERNAME = 'admin';
-  const ADMIN_PASSWORD = 'xpress@2025';
+  // Admin credentials from environment variables
+  const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME;
+  const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD;
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,10 +92,13 @@ export default function AdminLogin() {
               {isLoading ? 'Logging in...' : 'Login'}
             </Button>
 
-            <div className="text-center text-sm text-gray-500 mt-4">
-              <p>Default credentials:</p>
-              <p className="font-mono text-xs">admin / xpress@2025</p>
-            </div>
+            {/* Remove or comment out default credentials display in production */}
+            {import.meta.env.DEV && (
+              <div className="text-center text-sm text-gray-500 mt-4">
+                <p>Default credentials:</p>
+                <p className="font-mono text-xs">{ADMIN_USERNAME} / {ADMIN_PASSWORD}</p>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
