@@ -9,7 +9,6 @@ import Header from '@/components/layout/Header';
 import MobileNav from '@/components/layout/MobileNav';
 import { formatPrice } from '@/lib/pricing';
 
-// ✅ Proper type definitions
 interface OrderItem {
   id: string;
   document_name: string;
@@ -30,6 +29,9 @@ interface Order {
   delivery_otp: string;
   order_items: OrderItem[];
   created_at: string;
+  is_guest?: boolean;
+  guest_name?: string;
+  guest_email?: string;
 }
 
 interface StatusConfig {
@@ -46,6 +48,27 @@ export default function MyOrders() {
 
   useEffect(() => {
     loadOrders();
+
+    // ✅ Real-time subscription for order updates
+    const ordersSubscription = supabase
+      .channel('my-orders')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders'
+        },
+        () => {
+          console.log('Order updated, refreshing...');
+          loadOrders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      ordersSubscription.unsubscribe();
+    };
   }, []);
 
   const loadOrders = async () => {
@@ -58,10 +81,11 @@ export default function MyOrders() {
         return;
       }
 
+      // ✅ UPDATED: Get both authenticated orders AND guest orders by email
       const { data, error: fetchError } = await supabase
         .from('orders')
         .select('*')
-        .eq('user_id', user.id)
+        .or(`user_id.eq.${user.id},and(guest_email.eq.${user.email},is_guest.eq.true)`)
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
@@ -145,13 +169,19 @@ export default function MyOrders() {
           ) : (
             <div className="space-y-4">
               {orders.map((order) => (
-                <Card key={order.id}>
+                <Card key={order.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between mb-4">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-bold">{order.order_number}</h3>
                           {getStatusBadge(order.status)}
+                          {/* ✅ Show "Guest Order" badge if it was a guest order */}
+                          {order.is_guest && (
+                            <Badge variant="outline" className="text-xs">
+                              Guest Order
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-sm text-gray-600">{formatDate(order.created_at)}</p>
                       </div>
@@ -169,7 +199,9 @@ export default function MyOrders() {
                             <div>
                               <p className="font-medium text-sm">{item.document_name}</p>
                               <p className="text-xs text-gray-500">
-                                {item.total_pages} pages • {item.copies} copies
+                                {item.total_pages} pages • {item.copies} {item.copies === 1 ? 'copy' : 'copies'}
+                                {item.color_mode && ` • ${item.color_mode}`}
+                                {item.sides && ` • ${item.sides}`}
                               </p>
                             </div>
                           </div>
@@ -178,6 +210,7 @@ export default function MyOrders() {
                       ))}
                     </div>
 
+                    {/* ✅ Show OTP for ready orders */}
                     {order.status === 'ready' && (
                       <Alert className="bg-green-50 border-green-200">
                         <AlertDescription className="flex items-center justify-between">
@@ -187,6 +220,25 @@ export default function MyOrders() {
                           <span className="text-sm font-mono font-bold text-green-600">
                             OTP: {order.delivery_otp}
                           </span>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    {/* ✅ Show payment status for COD orders */}
+                    {order.payment_method === 'cod' && order.payment_status === 'pending' && order.status !== 'delivered' && (
+                      <Alert className="bg-blue-50 border-blue-200 mt-3">
+                        <AlertDescription className="text-blue-800 text-sm">
+                          💰 Payment due on delivery
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    {/* ✅ Show delivered confirmation */}
+                    {order.status === 'delivered' && (
+                      <Alert className="bg-gray-50 border-gray-200 mt-3">
+                        <AlertDescription className="text-gray-700 text-sm flex items-center">
+                          <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
+                          Order delivered successfully
                         </AlertDescription>
                       </Alert>
                     )}

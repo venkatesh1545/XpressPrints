@@ -67,7 +67,6 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboardData();
 
-    // ✅ Set up real-time subscription for order updates
     const ordersSubscription = supabase
       .channel('dashboard-orders')
       .on(
@@ -97,7 +96,6 @@ export default function Dashboard() {
         setLoading(true);
       }
       
-      // Get current user
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
       
       if (authError || !authUser) {
@@ -105,17 +103,16 @@ export default function Dashboard() {
         return;
       }
 
-      // Set user info
       setUser({
         full_name: authUser.user_metadata?.full_name,
         email: authUser.email
       });
 
-      // ✅ Get all orders from correct table
+      // ✅ UPDATED: Get both authenticated orders AND guest orders by email
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
         .select('*')
-        .eq('user_id', authUser.id)
+        .or(`user_id.eq.${authUser.id},and(guest_email.eq.${authUser.email},is_guest.eq.true)`)
         .order('created_at', { ascending: false });
 
       if (ordersError) {
@@ -125,7 +122,6 @@ export default function Dashboard() {
 
       const allOrders = orders || [];
 
-      // Calculate stats
       const totalOrders = allOrders.length;
       const pendingOrders = allOrders.filter(o => 
         ['pending', 'processing', 'ready'].includes(o.status)
@@ -142,7 +138,6 @@ export default function Dashboard() {
         totalSpent
       });
 
-      // Get recent orders (last 3)
       setRecentOrders(allOrders.slice(0, 3));
       setError('');
       
@@ -236,7 +231,6 @@ export default function Dashboard() {
       
       <main className="container mx-auto px-4 py-8 pb-20 md:pb-8">
         <div className="max-w-6xl mx-auto">
-          {/* Welcome Section */}
           <div className="mb-8">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
@@ -270,7 +264,6 @@ export default function Dashboard() {
             </Alert>
           )}
 
-          {/* Stats Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <Card className="hover:shadow-lg transition-shadow">
               <CardContent className="p-6 text-center">
@@ -306,7 +299,6 @@ export default function Dashboard() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Quick Actions */}
             <div className="lg:col-span-1">
               <Card>
                 <CardHeader>
@@ -336,7 +328,6 @@ export default function Dashboard() {
               </Card>
             </div>
 
-            {/* Recent Orders */}
             <div className="lg:col-span-2">
               <Card>
                 <CardHeader>

@@ -90,7 +90,6 @@ export default function OrderConfirmation() {
       setPaymentMethod(savedPaymentMethod as 'online' | 'cod');
     }
 
-    // Check if user is logged in
     const { data: { user } } = await supabase.auth.getUser();
     setIsGuest(!user);
   };
@@ -134,7 +133,7 @@ export default function OrderConfirmation() {
     }
   };
 
-  // ✅ NEW: Create account for guest user after order
+  // ✅ UPDATED: Create account and link orders
   const createAccountFromGuest = async (guestInfo: GuestDetails) => {
     if (!guestInfo.createAccount || !guestInfo.password || !guestInfo.email) {
       return;
@@ -160,8 +159,35 @@ export default function OrderConfirmation() {
         return;
       }
 
+      if (!data.user) {
+        throw new Error('User creation failed');
+      }
+
       console.log('[Account] ✅ Account created successfully');
-      toast.success('🎉 Account created! Check your email for verification link.');
+
+      // ✅ Link all guest orders with this email to new account
+      try {
+        console.log('[Account] Linking guest orders to new account...');
+        
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ 
+            user_id: data.user.id,
+            is_guest: false 
+          })
+          .eq('guest_email', guestInfo.email)
+          .is('user_id', null);
+
+        if (updateError) {
+          console.error('[Account] Failed to link orders:', updateError);
+        } else {
+          console.log('[Account] ✅ Guest orders linked successfully');
+        }
+      } catch (linkError) {
+        console.error('[Account] Order linking error:', linkError);
+      }
+
+      toast.success('🎉 Account created! Your orders have been linked to your account.');
       
     } catch (error) {
       console.error('[Account] Error:', error);
@@ -169,12 +195,10 @@ export default function OrderConfirmation() {
     }
   };
 
-  // Handle guest checkout modal submit
   const handleGuestDetailsSubmit = (details: GuestDetails) => {
     setGuestDetails(details);
     setShowGuestModal(false);
     
-    // Proceed with payment based on selected method
     if (paymentMethod === 'online') {
       handleRazorpayPayment(details);
     } else {
@@ -182,19 +206,16 @@ export default function OrderConfirmation() {
     }
   };
 
-  // Trigger checkout (guest or authenticated)
   const handleCheckoutClick = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
-      // Authenticated user - proceed directly
       if (paymentMethod === 'online') {
         handleRazorpayPayment();
       } else {
         handleCODOrder();
       }
     } else {
-      // Guest user - show modal first
       setShowGuestModal(true);
     }
   };
@@ -205,7 +226,6 @@ export default function OrderConfirmation() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // Use guest info if provided, otherwise use authenticated user
       const customerEmail = guestInfo?.email || user?.email;
       const customerName = guestInfo?.name || user?.user_metadata?.full_name;
       const customerPhone = guestInfo?.phone || user?.user_metadata?.phone;
@@ -298,7 +318,7 @@ export default function OrderConfirmation() {
               customerName || 'Valued Customer'
             );
 
-            // ✅ Create account if requested
+            // ✅ Create account and link orders
             if (guestInfo?.createAccount && guestInfo?.password) {
               await createAccountFromGuest(guestInfo);
             }
@@ -341,7 +361,6 @@ export default function OrderConfirmation() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Use guest info if provided, otherwise use authenticated user
       const customerEmail = guestInfo?.email || user?.email;
       const customerName = guestInfo?.name || user?.user_metadata?.full_name;
 
@@ -402,7 +421,7 @@ export default function OrderConfirmation() {
         customerName || 'Valued Customer'
       );
 
-      // ✅ Create account if requested
+      // ✅ Create account and link orders
       if (guestInfo?.createAccount && guestInfo?.password) {
         await createAccountFromGuest(guestInfo);
       }
@@ -440,7 +459,6 @@ export default function OrderConfirmation() {
           <div className="max-w-4xl mx-auto">
             <h1 className="text-3xl font-bold mb-8">Order Confirmation</h1>
 
-            {/* Guest checkout indicator */}
             {isGuest && (
               <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-start gap-3">
@@ -458,7 +476,6 @@ export default function OrderConfirmation() {
             )}
 
             <div className="grid lg:grid-cols-3 gap-6">
-              {/* Order Items */}
               <div className="lg:col-span-2 space-y-6">
                 <Card>
                   <CardHeader>
@@ -509,7 +526,6 @@ export default function OrderConfirmation() {
                 </Card>
               </div>
 
-              {/* Order Summary */}
               <div>
                 <Card className="sticky top-4">
                   <CardHeader>
@@ -581,7 +597,6 @@ export default function OrderConfirmation() {
         <MobileNav />
       </div>
 
-      {/* Guest Checkout Modal */}
       <GuestCheckoutModal
         open={showGuestModal}
         onClose={() => setShowGuestModal(false)}
@@ -589,7 +604,6 @@ export default function OrderConfirmation() {
         isLoading={isProcessing}
       />
 
-      {/* Success Modal */}
       <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -631,14 +645,13 @@ export default function OrderConfirmation() {
               </p>
             </div>
 
-            {/* Account created notification */}
             {isGuest && guestDetails?.createAccount && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                 <p className="text-sm text-green-800 font-medium">
                   🎉 Account created successfully!
                 </p>
                 <p className="text-xs text-green-700 mt-1">
-                  Check your email for verification link to access your dashboard
+                  Check your email for verification link. Your orders have been linked to your account.
                 </p>
               </div>
             )}
