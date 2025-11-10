@@ -12,13 +12,13 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
-import { CartItem } from '@/types';
+import { CartItem, GuestDetails } from '@/types';
 import { formatPrice } from '@/lib/pricing';
 import Header from '@/components/layout/Header';
 import MobileNav from '@/components/layout/MobileNav';
-import { Smartphone, Wallet, CheckCircle, Home } from 'lucide-react';
+import GuestCheckoutModal from '@/components/checkout/GuestCheckoutModal';
+import { Smartphone, Wallet, CheckCircle, Home, UserCheck } from 'lucide-react';
 
-// Add after imports, before component
 interface RazorpayResponse {
   razorpay_order_id: string;
   razorpay_payment_id: string;
@@ -53,7 +53,6 @@ declare global {
   }
 }
 
-
 const CONVENIENCE_FEE = 4;
 const CONVENIENCE_FEE_THRESHOLD = 50;
 
@@ -62,13 +61,21 @@ export default function OrderConfirmation() {
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('cod');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showGuestModal, setShowGuestModal] = useState(false);
+  const [guestDetails, setGuestDetails] = useState<GuestDetails | null>(null);
   const [orderDetails, setOrderDetails] = useState<{
     orderNumber: string;
     deliveryOtp: string;
   } | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
+  
   const navigate = useNavigate();
 
   useEffect(() => {
+    checkAuthAndLoadCart();
+  }, [navigate]);
+
+  const checkAuthAndLoadCart = async () => {
     const checkoutData = sessionStorage.getItem('checkoutItems');
     const savedPaymentMethod = sessionStorage.getItem('paymentMethod');
     
@@ -76,213 +83,280 @@ export default function OrderConfirmation() {
       setCartItems(JSON.parse(checkoutData));
     } else {
       navigate('/cart');
+      return;
     }
     
     if (savedPaymentMethod) {
       setPaymentMethod(savedPaymentMethod as 'online' | 'cod');
     }
-  }, [navigate]);
+
+    // Check if user is logged in
+    const { data: { user } } = await supabase.auth.getUser();
+    setIsGuest(!user);
+  };
 
   const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.copies), 0);
   const convenienceFee = subtotal > CONVENIENCE_FEE_THRESHOLD ? CONVENIENCE_FEE : 0;
   const totalAmount = subtotal + convenienceFee;
 
-  // ✅ Send email notifications to admin and customer
-    const sendNotifications = async (
-      orderNumber: string,
-      totalAmount: number,
-      items: CartItem[],
-      userEmail: string,
-      userName: string
-    ) => {
-      try {
-        console.log('[Notification] Sending emails to:', userEmail);
-        console.log('[Notification] Order:', orderNumber);
-        
-        const { data, error } = await supabase.functions.invoke('send-order-notifications', {
-          body: {
-            orderNumber,
-            totalAmount,
-            items: items.map(item => ({
-              document_name: item.document_name,
-              total_pages: item.total_pages,
-              copies: item.copies,
-              color_mode: item.color_mode || 'black & white'
-            })),
-            userEmail, // ✅ This should be the customer's email
-            userName
-          }
-        });
-        
-        if (error) {
-          console.error('[Notification] Error:', error);
-          toast.warning('Order placed but email notification failed');
-        } else {
-          console.log('[Notification] Response:', data);
-          toast.success('Order placed! Check your email for confirmation');
+  const sendNotifications = async (
+    orderNumber: string,
+    totalAmount: number,
+    items: CartItem[],
+    userEmail: string,
+    userName: string
+  ) => {
+    try {
+      console.log('[Notification] Sending emails to:', userEmail);
+      
+      const { data, error } = await supabase.functions.invoke('send-order-notifications', {
+        body: {
+          orderNumber,
+          totalAmount,
+          items: items.map(item => ({
+            document_name: item.document_name,
+            total_pages: item.total_pages,
+            copies: item.copies,
+            color_mode: item.color_mode || 'black & white'
+          })),
+          userEmail,
+          userName
         }
-      } catch (error) {
-        console.error('[Notification] Failed:', error);
-        // Don't fail the order if notification fails
+      });
+      
+      if (error) {
+        console.error('[Notification] Error:', error);
+      } else {
+        console.log('[Notification] Emails sent successfully');
       }
-    };
+    } catch (error) {
+      console.error('[Notification] Failed:', error);
+    }
+  };
 
+  // ✅ NEW: Create account for guest user after order
+  const createAccountFromGuest = async (guestInfo: GuestDetails) => {
+    if (!guestInfo.createAccount || !guestInfo.password || !guestInfo.email) {
+      return;
+    }
 
-  const handleRazorpayPayment = async () => {
-      setIsProcessing(true);
+    try {
+      console.log('[Account] Creating account for:', guestInfo.email);
 
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (!user) {
-          toast.error('Please sign in to continue');
-          navigate('/login');
-          return;
-        }
-
-        console.log('[Razorpay] Creating order for ₹', totalAmount);
-
-        // Step 1: Create Razorpay order
-        const { data, error } = await supabase.functions.invoke('create-razorpay-order', {
-          body: {
-            amount: totalAmount,
-            userId: user.id,
-            userEmail: user.email,
-            items: cartItems
+      const { data, error } = await supabase.auth.signUp({
+        email: guestInfo.email,
+        password: guestInfo.password,
+        options: {
+          data: {
+            full_name: guestInfo.name,
+            phone: guestInfo.phone
           }
-        });
-
-        if (error || !data.success) {
-          throw new Error(data?.error || 'Failed to create order');
         }
+      });
 
-        console.log('[Razorpay] Order created:', data.orderId);
+      if (error) {
+        console.error('[Account] Creation failed:', error);
+        toast.error('Order placed but account creation failed. Please sign up manually.');
+        return;
+      }
 
-        // Step 2: Open Razorpay Checkout
-        const options: RazorpayOptions = {
-          key: data.keyId,
-          amount: data.amount,
-          currency: data.currency,
-          name: 'Xpress Prints',
-          description: `${cartItems.length} documents to print`,
-          order_id: data.orderId,
-          prefill: {
-            email: user.email || '',
-            contact: user.user_metadata?.phone || ''
-          },
-          theme: {
-            color: '#3b82f6'
-          },
-          handler: async (response: RazorpayResponse) => {
-            console.log('[Razorpay] Payment successful:', response);
+      console.log('[Account] ✅ Account created successfully');
+      toast.success('🎉 Account created! Check your email for verification link.');
+      
+    } catch (error) {
+      console.error('[Account] Error:', error);
+      toast.error('Failed to create account. Please sign up manually.');
+    }
+  };
 
-            try {
-              // Step 3: Verify payment
-              const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
-              const orderNumber = `ORD-${Date.now()}`;
+  // Handle guest checkout modal submit
+  const handleGuestDetailsSubmit = (details: GuestDetails) => {
+    setGuestDetails(details);
+    setShowGuestModal(false);
+    
+    // Proceed with payment based on selected method
+    if (paymentMethod === 'online') {
+      handleRazorpayPayment(details);
+    } else {
+      handleCODOrder(details);
+    }
+  };
 
-              const orderData = {
-                user_id: user.id,
-                user_email: user.email,
-                order_number: orderNumber,
-                total_amount: totalAmount,
-                payment_method: 'online',
-                delivery_otp: deliveryOtp,
-                status: 'pending',
-                order_items: cartItems.map(item => ({
-                  document_name: item.document_name,
-                  document_url: item.document_url,
-                  total_pages: item.total_pages,
-                  copies: item.copies,
-                  color_mode: item.color_mode,
-                  sides: item.sides,
-                  price: item.price,
-                  paper_size: item.paper_size,
-                  spiral_binding: item.spiral_binding || 0,
-                  record_binding: item.record_binding || 0,
-                  custom_pages_config: item.custom_pages_config
-                }))
-              };
+  // Trigger checkout (guest or authenticated)
+  const handleCheckoutClick = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (user) {
+      // Authenticated user - proceed directly
+      if (paymentMethod === 'online') {
+        handleRazorpayPayment();
+      } else {
+        handleCODOrder();
+      }
+    } else {
+      // Guest user - show modal first
+      setShowGuestModal(true);
+    }
+  };
 
-              const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-razorpay-payment', {
-                body: {
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_signature: response.razorpay_signature,
-                  orderData: orderData
-                }
-              });
+  const handleRazorpayPayment = async (guestInfo?: GuestDetails) => {
+    setIsProcessing(true);
 
-              if (verifyError || !verifyData.success) {
-                throw new Error('Payment verification failed');
-              }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // Use guest info if provided, otherwise use authenticated user
+      const customerEmail = guestInfo?.email || user?.email;
+      const customerName = guestInfo?.name || user?.user_metadata?.full_name;
+      const customerPhone = guestInfo?.phone || user?.user_metadata?.phone;
 
-              console.log('[Razorpay] Payment verified ✅');
-
-              sendNotifications(
-                orderNumber,
-                totalAmount,
-                cartItems,
-                user.email || 'Unknown',
-                user.user_metadata?.full_name || 'Valued Customer'
-              );
-              // Clear cart
-              localStorage.removeItem('cart');
-              sessionStorage.removeItem('checkoutItems');
-              sessionStorage.removeItem('paymentMethod');
-
-              // Show success modal
-              setOrderDetails({ orderNumber, deliveryOtp });
-              setShowSuccessModal(true);
-
-            } catch (error) {
-              console.error('[Razorpay] Verification failed:', error);
-              toast.error('Payment verification failed. Please contact support.');
-            } finally {
-              setIsProcessing(false);
-            }
-          },
-          modal: {
-            ondismiss: () => {
-              console.log('[Razorpay] Payment cancelled by user');
-              setIsProcessing(false);
-              toast.info('Payment cancelled');
-            }
-          }
-        };
-
-        const razorpay = new window.Razorpay(options);
-        razorpay.open();
-
-      } catch (error) {
-        console.error('[Razorpay] Error:', error);
-        toast.error('Failed to initiate payment. Please try again.');
+      if (!customerEmail) {
+        toast.error('Email is required');
         setIsProcessing(false);
+        return;
       }
-    };
 
+      console.log('[Razorpay] Creating order for ₹', totalAmount);
 
+      const { data, error } = await supabase.functions.invoke('create-razorpay-order', {
+        body: {
+          amount: totalAmount,
+          userId: user?.id || null,
+          userEmail: customerEmail,
+          items: cartItems
+        }
+      });
 
-  const handleCODOrder = async () => {
+      if (error || !data.success) {
+        throw new Error(data?.error || 'Failed to create order');
+      }
+
+      const options: RazorpayOptions = {
+        key: data.keyId,
+        amount: data.amount,
+        currency: data.currency,
+        name: 'Xpress Prints',
+        description: `${cartItems.length} documents to print`,
+        order_id: data.orderId,
+        prefill: {
+          email: customerEmail,
+          contact: customerPhone || ''
+        },
+        theme: {
+          color: '#3b82f6'
+        },
+        handler: async (response: RazorpayResponse) => {
+          try {
+            const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
+            const orderNumber = `ORD-${Date.now()}`;
+
+            const orderData = {
+              user_id: user?.id || null,
+              user_email: customerEmail,
+              order_number: orderNumber,
+              total_amount: totalAmount,
+              payment_method: 'online',
+              delivery_otp: deliveryOtp,
+              status: 'pending',
+              is_guest: !user,
+              guest_name: guestInfo?.name,
+              guest_phone: guestInfo?.phone,
+              guest_email: guestInfo?.email,
+              order_items: cartItems.map(item => ({
+                document_name: item.document_name,
+                document_url: item.document_url,
+                total_pages: item.total_pages,
+                copies: item.copies,
+                color_mode: item.color_mode,
+                sides: item.sides,
+                price: item.price,
+                paper_size: item.paper_size,
+                spiral_binding: item.spiral_binding || 0,
+                record_binding: item.record_binding || 0,
+                custom_pages_config: item.custom_pages_config
+              }))
+            };
+
+            const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-razorpay-payment', {
+              body: {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                orderData: orderData
+              }
+            });
+
+            if (verifyError || !verifyData.success) {
+              throw new Error('Payment verification failed');
+            }
+
+            await sendNotifications(
+              orderNumber,
+              totalAmount,
+              cartItems,
+              customerEmail,
+              customerName || 'Valued Customer'
+            );
+
+            // ✅ Create account if requested
+            if (guestInfo?.createAccount && guestInfo?.password) {
+              await createAccountFromGuest(guestInfo);
+            }
+
+            localStorage.removeItem('cart');
+            sessionStorage.removeItem('checkoutItems');
+            sessionStorage.removeItem('paymentMethod');
+
+            setOrderDetails({ orderNumber, deliveryOtp });
+            setShowSuccessModal(true);
+
+          } catch (error) {
+            console.error('[Razorpay] Verification failed:', error);
+            toast.error('Payment verification failed. Please contact support.');
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setIsProcessing(false);
+            toast.info('Payment cancelled');
+          }
+        }
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+
+    } catch (error) {
+      console.error('[Razorpay] Error:', error);
+      toast.error('Failed to initiate payment. Please try again.');
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCODOrder = async (guestInfo?: GuestDetails) => {
     setIsProcessing(true);
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      if (!user || !user.email) {
-        toast.error('Please sign in to continue');
-        navigate('/login');
+      // Use guest info if provided, otherwise use authenticated user
+      const customerEmail = guestInfo?.email || user?.email;
+      const customerName = guestInfo?.name || user?.user_metadata?.full_name;
+
+      if (!customerEmail) {
+        toast.error('Email is required');
+        setIsProcessing(false);
         return;
       }
-
-      console.log('[COD] User email:', user.email); // ✅ Debug log
 
       const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
       const orderNumber = `ORD-${Date.now()}`;
 
       const orderData = {
-        user_id: user.id,
-        user_email: user.email, // ✅ Make sure this is set
+        user_id: user?.id || null,
+        user_email: customerEmail,
         order_number: orderNumber,
         total_amount: totalAmount,
         payment_method: 'cod',
@@ -290,6 +364,10 @@ export default function OrderConfirmation() {
         payment_id: null,
         delivery_otp: deliveryOtp,
         status: 'pending',
+        is_guest: !user,
+        guest_name: guestInfo?.name,
+        guest_phone: guestInfo?.phone,
+        guest_email: guestInfo?.email,
         order_items: cartItems.map(item => ({
           document_name: item.document_name,
           document_url: item.document_url,
@@ -305,8 +383,7 @@ export default function OrderConfirmation() {
         }))
       };
 
-      // Insert into Supabase
-      const { data: orderResult, error: orderError } = await supabase
+      const { error: orderError } = await supabase
         .from('orders')
         .insert([orderData])
         .select()
@@ -317,42 +394,33 @@ export default function OrderConfirmation() {
         throw orderError;
       }
 
-      console.log('[COD] Order created successfully!');
-      
-      // ✅ FIXED: Send notifications with proper email
-      console.log('[COD] Sending notifications to:', user.email);
-      
       await sendNotifications(
         orderNumber,
         totalAmount,
         cartItems,
-        user.email, // ✅ Ensure this is the actual email
-        user.user_metadata?.full_name || user.email?.split('@')[0] || 'Valued Customer'
+        customerEmail,
+        customerName || 'Valued Customer'
       );
-      
-      // Store order details for success modal
-      setOrderDetails({
-        orderNumber,
-        deliveryOtp
-      });
-      
-      // Clear cart
+
+      // ✅ Create account if requested
+      if (guestInfo?.createAccount && guestInfo?.password) {
+        await createAccountFromGuest(guestInfo);
+      }
+
       localStorage.removeItem('cart');
       sessionStorage.removeItem('checkoutItems');
       sessionStorage.removeItem('paymentMethod');
-      
-      // Show success modal
+
+      setOrderDetails({ orderNumber, deliveryOtp });
       setShowSuccessModal(true);
-      
+
     } catch (error) {
       console.error('[COD] Error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      toast.error(`Order placement failed: ${errorMessage}`);
+      toast.error('Order placement failed. Please try again.');
     } finally {
       setIsProcessing(false);
     }
   };
-
 
   const handleBackToDashboard = () => {
     setShowSuccessModal(false);
@@ -371,6 +439,23 @@ export default function OrderConfirmation() {
         <main className="container mx-auto px-4 py-8 pb-20 md:pb-8">
           <div className="max-w-4xl mx-auto">
             <h1 className="text-3xl font-bold mb-8">Order Confirmation</h1>
+
+            {/* Guest checkout indicator */}
+            {isGuest && (
+              <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <UserCheck className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-900">
+                      Quick Checkout (No Account Required)
+                    </p>
+                    <p className="text-xs text-blue-700 mt-1">
+                      Enter your details at checkout • No sign-up needed
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid lg:grid-cols-3 gap-6">
               {/* Order Items */}
@@ -401,13 +486,6 @@ export default function OrderConfirmation() {
                     <CardTitle>Select Payment Method</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-                      <p className="text-xs text-blue-800">
-                        💳 Online payments are being configured with PhonePe. 
-                        We recommend Cash on Delivery for now - fast and secure!
-                      </p>
-                    </div> */}
-
                     <Button
                       variant={paymentMethod === 'cod' ? 'default' : 'outline'}
                       className="w-full justify-start"
@@ -420,7 +498,7 @@ export default function OrderConfirmation() {
                     
                     <Button
                       variant={paymentMethod === 'online' ? 'default' : 'outline'}
-                      className="w-full justify-start opacity-75"
+                      className="w-full justify-start"
                       size="lg"
                       onClick={() => setPaymentMethod('online')}
                     >
@@ -448,11 +526,6 @@ export default function OrderConfirmation() {
                       <span className="text-green-600 font-medium">Free</span>
                     </div>
                     
-                    {/* <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Convenience Fee</span>
-                      <span className="font-medium">{formatPrice(CONVENIENCE_FEE)}</span>
-                    </div> */}
-                    {/* In the Order Summary section, replace convenience fee display with: */}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Convenience Fee</span>
                       {convenienceFee > 0 ? (
@@ -476,7 +549,7 @@ export default function OrderConfirmation() {
                     </div>
 
                     <Button
-                      onClick={paymentMethod === 'online' ? handleRazorpayPayment : handleCODOrder}
+                      onClick={handleCheckoutClick}
                       className="w-full"
                       size="lg"
                       disabled={isProcessing}
@@ -494,8 +567,8 @@ export default function OrderConfirmation() {
 
                     <p className="text-xs text-gray-500 text-center">
                       {paymentMethod === 'online' 
-                        ? '🔒 You will be redirected to PhonePe for secure payment'
-                        : '✅ Free delivery within 12-24 hours • Pay when you receive'
+                        ? '🔒 Secure payment via Razorpay'
+                        : '✅ Free delivery within 12-24 hours'
                       }
                     </p>
                   </CardContent>
@@ -507,6 +580,14 @@ export default function OrderConfirmation() {
 
         <MobileNav />
       </div>
+
+      {/* Guest Checkout Modal */}
+      <GuestCheckoutModal
+        open={showGuestModal}
+        onClose={() => setShowGuestModal(false)}
+        onSubmit={handleGuestDetailsSubmit}
+        isLoading={isProcessing}
+      />
 
       {/* Success Modal */}
       <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
@@ -541,7 +622,6 @@ export default function OrderConfirmation() {
               </div>
             )}
 
-            {/* ✅ Added highlighted email notification message */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-sm text-blue-800 font-medium">
                 📧 Confirmation emails have been sent to you and our admin.
@@ -551,21 +631,37 @@ export default function OrderConfirmation() {
               </p>
             </div>
 
-            <p className="text-sm text-gray-600">
-              You can track your order status in the <strong>"My Orders"</strong> section.
-            </p>
+            {/* Account created notification */}
+            {isGuest && guestDetails?.createAccount && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-sm text-green-800 font-medium">
+                  🎉 Account created successfully!
+                </p>
+                <p className="text-xs text-green-700 mt-1">
+                  Check your email for verification link to access your dashboard
+                </p>
+              </div>
+            )}
+
+            {!isGuest && (
+              <p className="text-sm text-gray-600">
+                You can track your order status in the <strong>"My Orders"</strong> section.
+              </p>
+            )}
           </div>
           
           <div className="flex flex-col gap-3 mt-4">
-            <Button
-              onClick={() => navigate('/my-orders')}
-              className="w-full"
-            >
-              View My Orders
-            </Button>
+            {!isGuest && (
+              <Button
+                onClick={() => navigate('/my-orders')}
+                className="w-full"
+              >
+                View My Orders
+              </Button>
+            )}
             <Button
               onClick={handleBackToDashboard}
-              variant="outline"
+              variant={isGuest ? "default" : "outline"}
               className="w-full"
             >
               <Home className="mr-2 h-4 w-4" />
@@ -574,7 +670,6 @@ export default function OrderConfirmation() {
           </div>
         </DialogContent>
       </Dialog>
-
     </>
   );
 }

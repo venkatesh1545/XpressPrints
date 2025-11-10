@@ -129,13 +129,8 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
       return;
     }
 
-    // Check authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
-    if (authError || !user) {
-      toast.error('Please sign in to upload files');
-      return;
-    }
+    // ✅ REMOVED AUTH CHECK - Allow guest uploads
+    // Guest users can now upload files without authentication
 
     setIsUploading(true);
 
@@ -235,7 +230,7 @@ export default function FileUpload({ onFilesUploaded, uploadedFiles, onRemoveFil
       'image/gif': ['.gif'],
       'image/webp': ['.webp']
     },
-    multiple: true, // ✅ Enable multiple file selection
+    multiple: true,
     maxFiles: MAX_FILES,
     disabled: isUploading || uploadedFiles.length >= MAX_FILES,
     onDropRejected: (fileRejections) => {

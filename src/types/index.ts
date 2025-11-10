@@ -7,7 +7,6 @@ export interface User {
   created_at: string;
 }
 
-
 export interface Address {
   id: string;
   user_id: string;
@@ -19,6 +18,16 @@ export interface Address {
   is_default: boolean;
 }
 
+// ✅ NEW: Guest checkout types
+export interface GuestDetails {
+  name: string;
+  phone: string;
+  email: string;
+  createAccount?: boolean;
+  password?: string; 
+}
+
+
 export type OrderStatus = 'placed' | 'processing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled';
 export type PaymentMethod = 'cod' | 'online';
 export type PaymentStatus = 'pending' | 'completed' | 'failed';
@@ -27,7 +36,7 @@ export type Sides = 'single' | 'double';
 
 export interface Order {
   id: string;
-  user_id: string;
+  user_id: string | null; // ✅ Allow null for guest orders
   order_number: string;
   status: OrderStatus;
   payment_method: PaymentMethod;
@@ -39,6 +48,12 @@ export interface Order {
   delivered_at?: string;
   created_at: string;
   order_items: OrderItem[];
+  
+  // ✅ NEW: Guest order fields
+  is_guest?: boolean;
+  guest_name?: string;
+  guest_phone?: string;
+  guest_email?: string;
 }
 
 export interface CartItem {
@@ -53,15 +68,11 @@ export interface CartItem {
   spiral_binding: number;
   record_binding: number;
   price: number;
-  // Add custom page config
   custom_pages_config?: {
     bwPages: string;
     colorPages: string;
   };
 }
-
-
-
 
 export interface OrderItem {
   id: string;
@@ -75,10 +86,9 @@ export interface OrderItem {
   sides: 'single' | 'double';
   paper_size: string;
   price: number;
-  spiral_binding: number;  // Changed from line_graph_sheets
-  record_binding: number;  // Changed from semi_log_graph_sheets
+  spiral_binding: number;
+  record_binding: number;
 }
-
 
 export interface PricingConfig {
   bw_single: number;

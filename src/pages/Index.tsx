@@ -31,12 +31,10 @@ export default function Index() {
     setIsAuthenticated(!!session);
   };
 
+  // ✅ CHANGE 1: Update this function to allow direct upload
   const handleStartPrinting = () => {
-    if (isAuthenticated) {
-      navigate('/upload');
-    } else {
-      navigate('/login');
-    }
+    // Always go to upload page (guest or authenticated)
+    navigate('/upload');
   };
 
   const features = [
@@ -158,6 +156,11 @@ export default function Index() {
                 </Button>
               )}
             </div>
+            
+            {/* ✅ CHANGE 2: Add guest checkout indicator */}
+            <p className="text-sm text-gray-500 mt-4">
+              ✨ No sign-up required • Quick guest checkout available
+            </p>
           </div>
         </div>
       </section>
